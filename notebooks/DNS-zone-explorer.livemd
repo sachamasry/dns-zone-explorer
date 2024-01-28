@@ -81,16 +81,69 @@ With query results saved to `subfinder_query_results`, we now need to clean up t
 <!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
-subfinder_query_result
-|> String.split("\n")
-|> Enum.filter(fn i -> i != "" end)
-|> Enum.map(fn i -> Jason.decode!(i) end)
+enumerated_subdomains =
+  subfinder_query_result
+  |> String.split("\n")
+  |> Enum.filter(fn i -> i != "" end)
+  |> Enum.map(fn i -> Jason.decode!(i) end)
 ```
 
-```elixir
-URI.decode("magicpillsmovie.com") |> URI.parse()
-```
+Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
 
 ```elixir
-Domainatrex.Mixfile.application()
+subdomain_list =
+  enumerated_subdomains
+  |> Enum.map(fn %{"host" => host} -> host end)
+```
+
+What we've now got is a list of subdomains, with fully-qualified domain names (FQDN). This is very wordy, as each subdomain is fully specified, containing the domain name in full. We don't want that much information, stripping the zone parent domain name from each subdomain, leaving only the actual subdomain name itself.
+
+```elixir
+subdomains =
+  subdomain_list
+  |> Enum.map(fn d ->
+    d
+    |> DomainName.new!()
+    |> DomainName.without_suffix(verified_domain)
+    |> case do
+      {:ok, s} -> DomainName.name(s)
+    end
+  end)
+  |> Enum.filter(fn i -> i != "" end)
+```
+
+## Visualising the DNS zone
+
+With the information now gathered, we can create a usable flowchart diagram, presenting the zone visually. We will use [Mermaid](https://mermaid.js.org/) for this, as it is an easy to use tool for programmatic diagram creation.
+
+First, we need a module, `ZoneTree` to convert this data into Mermaid flowchart definition code.
+
+```elixir
+defmodule ZoneTree do
+  def construct_tree(parent_domain, subdomain_list) when is_list(subdomain_list) do
+    parent_node = "parent([#{DomainName.name(parent_domain)}])"
+
+    for s <- subdomain_list, into: [] do
+      "#{parent_node} --> #{s}([#{s}])"
+    end
+  end
+end
+```
+
+The `construct_tree/2` function takes the parent domain and the list of subdomains, converting them to a node-and-relationship definition string.
+
+```elixir
+nodes =
+  ZoneTree.construct_tree(verified_domain, subdomains)
+  |> Enum.join(";")
+```
+
+Feeding this definition string into the scaffolded diagram definition provides us with the completed diagram.
+
+```elixir
+Kino.Mermaid.new("""
+%%{ init: { 'flowchart': { 'curve': 'linear' } } }%%
+flowchart LR
+#{nodes}
+""")
 ```
