@@ -116,34 +116,78 @@ subdomains =
 
 With the information now gathered, we can create a usable flowchart diagram, presenting the zone visually. We will use [Mermaid](https://mermaid.js.org/) for this, as it is an easy to use tool for programmatic diagram creation.
 
+<!-- livebook:{"break_markdown":true} -->
+
+To begin with, let's define invariant sections of the diagram definition: initialisation configuration, diagram type and title, and styling. By doing this up front, we're developing the diagram definition in easily managable segments, and defining the diagram in a _literate programming_ style.
+
+```elixir
+dns_zone_diagram_configuration =
+  """
+  %%{ init: { 
+    'fontFamily': 'Calluna Sans, Helvetica, Trebuchet MS, Verdana, Arial, Sans-Serif',
+    'flowchart': { 'curve': 'linear' } 
+    } }%%
+  """
+```
+
+```elixir
+diagram_type = "flowchart TD"
+```
+
+```elixir
+diagram_styles =
+  """
+  classDef parent-node fill:turquoise;
+  classDef subdomain color:#222;
+  """
+```
+
 First, we need a module, `ZoneTree` to convert this data into Mermaid flowchart definition code.
 
 ```elixir
 defmodule ZoneTree do
-  def construct_tree(parent_domain, subdomain_list) when is_list(subdomain_list) do
-    parent_node = "parent([#{DomainName.name(parent_domain)}])"
-
+  def construct_tree(subdomain_list) when is_list(subdomain_list) do
     for s <- subdomain_list, into: [] do
-      "#{parent_node} --> #{s}([#{s}])"
+      "parent-node --> #{s}([#{s}]):::subdomain"
     end
+  end
+
+  def define_parent_node(parent_domain) do
+    "parent-node([#{DomainName.name(parent_domain)}]):::parent-node;"
   end
 end
 ```
 
-The `construct_tree/2` function takes the parent domain and the list of subdomains, converting them to a node-and-relationship definition string.
+The `construct_tree/1` function takes the parent domain and the list of subdomains, converting them to a node-and-relationship definition string.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
+parent_node = ZoneTree.define_parent_node(verified_domain)
+
 nodes =
-  ZoneTree.construct_tree(verified_domain, subdomains)
-  |> Enum.join(";")
+  ZoneTree.construct_tree(subdomains) |> Enum.join(";")
 ```
 
-Feeding this definition string into the scaffolded diagram definition provides us with the completed diagram.
+Feeding this definition string into the scaffolded diagram definition provides us with the complete diagram definition.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
-Kino.Mermaid.new("""
-%%{ init: { 'flowchart': { 'curve': 'linear' } } }%%
-flowchart LR
-#{nodes}
-""")
+dns_zone_diagram =
+  """
+  #{dns_zone_diagram_configuration}
+  #{diagram_type};
+  #{parent_node}
+  #{nodes}
+  #{diagram_styles}
+  """
+```
+
+The diagram definition, stored in the `dns_zone_diagram` variable, can now be used to draw the DNS zone diagram.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+Kino.Mermaid.new(dns_zone_diagram)
 ```
