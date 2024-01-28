@@ -112,6 +112,12 @@ subdomains =
   |> Enum.filter(fn i -> i != "" end)
 ```
 
+As it will be necessary later, in the diagram generation and styling stage, let's calculate how many nodes we need to diagram, saving it into the `nmber_of_relationships` variable.
+
+```elixir
+number_of_relationships = length(subdomains)
+```
+
 ## Visualising the DNS zone
 
 With the information now gathered, we can create a usable flowchart diagram, presenting the zone visually. We will use [Mermaid](https://mermaid.js.org/) for this, as it is an easy to use tool for programmatic diagram creation.
@@ -125,7 +131,10 @@ dns_zone_diagram_configuration =
   """
   %%{ init: { 
     'fontFamily': 'Calluna Sans, Helvetica, Trebuchet MS, Verdana, Arial, Sans-Serif',
-    'flowchart': { 'curve': 'linear' } 
+    'flowchart': { 
+      'curve': 'linear',
+      'useMaxWidth': 'true'
+     } 
     } }%%
   """
 ```
@@ -134,9 +143,23 @@ dns_zone_diagram_configuration =
 diagram_type = "flowchart TD"
 ```
 
+As Mermaid doesn't define unique IDs for edges (node connections), it instead affords styling links by the order number in which they were defined. Instead of overriding the style globally, we need to specify the link order. We'll use a simple generator to produce this list of edges, which we will dynamically insert into the styling definition.
+
+```elixir
+edges =
+  for i <- 0..(number_of_relationships - 1) do
+    "#{i}"
+  end
+
+full_edge_listing = Enum.join(edges, ",")
+```
+
+In the following step, we insert the list of edges by order of definition.
+
 ```elixir
 diagram_styles =
   """
+  linkStyle #{full_edge_listing} stroke:#000,stroke-width:1px,color:#000
   classDef parent-node fill:turquoise;
   classDef subdomain color:#222;
   """
@@ -148,7 +171,7 @@ First, we need a module, `ZoneTree` to convert this data into Mermaid flowchart 
 defmodule ZoneTree do
   def construct_tree(subdomain_list) when is_list(subdomain_list) do
     for s <- subdomain_list, into: [] do
-      "parent-node --> #{s}([#{s}]):::subdomain"
+      "parent-node --- #{s}([#{s}]):::subdomain"
     end
   end
 
