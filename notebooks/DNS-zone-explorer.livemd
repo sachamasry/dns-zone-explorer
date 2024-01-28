@@ -59,6 +59,8 @@ The following will read and attempt to construct a valid domain name and parrot 
   )
 ```
 
+## Subdomain enumeration
+
 We now call out to `System.cmd` to run `subfinder` on our domain. Note that ease of parsing is most important here, thus the tool is run with a few additional options:
 
 * `-silent` so that the masthead message, progress and other messages are not printed to `stdout`
@@ -86,6 +88,34 @@ enumerated_subdomains =
   |> String.split("\n")
   |> Enum.filter(fn i -> i != "" end)
   |> Enum.map(fn i -> Jason.decode!(i) end)
+```
+
+## Creating a subdomain tree
+
+To make reading and traversal of our zone easier, a `DnsRecord` structure will store all the relevant information for each record.
+
+```elixir
+defmodule DnsRecord do
+  defstruct name: "",
+            type: "",
+            value: "",
+            ttl: nil,
+            children: [],
+            query_tool: "",
+            answer_source: ""
+end
+```
+
+```elixir
+enumerated_subdomains
+|> Enum.map(fn %{"host" => host, "source" => source} ->
+  %DnsRecord{
+    name: host,
+    type: "CNAME",
+    query_tool: "subfinder",
+    answer_source: source
+  }
+end)
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
