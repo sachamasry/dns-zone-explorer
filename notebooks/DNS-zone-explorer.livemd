@@ -1,9 +1,84 @@
-<!-- livebook:{"autosave_interval_s":60,"persist_outputs":true} -->
+<!-- livebook:{"autosave_interval_s":60} -->
 
-# Untitled notebook
-
-## Section
+# DNS Zone Explorer
 
 ```elixir
+Mix.install([
+  {:kino, "~> 0.12.3"},
+  {:kino_shell, "~> 0.1.2"},
+  {:jason, "~> 1.4"}
+])
+```
 
+## Using Erlang's :inet_res builtin functionality
+
+```elixir
+{:ok, res} = :inet_res.resolve(~c"google.com", :in, :txt)
+
+res
+|> :inet_dns.msg()
+|> Keyword.fetch!(:anlist)
+|> Enum.map(fn n -> :inet_dns.rr(n) end)
+```
+
+## On DNS zone enumeration
+
+For security reasons, it is difficult to get a true state of a DNS zone, as this is information which would be used by attackers in finding exploits.
+
+To enumerate subdomains of a domain, we will turn to several penetration testing tools.
+
+<!-- livebook:{"break_markdown":true} -->
+
+Let's get locations of all subdomain enumeration tools we may need, into variables we can use.
+
+```elixir
+amass_binary = System.get_env("LB_AMASS_BIN")
+assetfinder_binary = System.get_env("LB_ASSETFINDER_BIN")
+dnsrecon_binary = System.get_env("LB_DNSRECON_BIN")
+puredns_binary = System.get_env("LB_PUREDNS_BIN")
+subfinder_binary = System.get_env("LB_SUBFINDER_BIN")
+sublist3r_binary = System.get_env("LB_SUBLIST3R_BIN")
+:ok
+```
+
+Next, we need user input to know which domain to enumerate, saving the input into the `domain` variable.
+
+```elixir
+domain = Kino.Input.text("Enter your domain name")
+```
+
+The following will merely read and parrot the user input back to us, as a simple form of feedback.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+Kino.Input.read(domain)
+```
+
+We now call out to `System.cmd` to run `subfinder` on our domain. Note that ease of parsing is most important here, thus the tool is run with a few additional options:
+
+* `-silent` so that the masthead message, progress and other messages are not printed to `stdout`
+* `-json` to return a list of JSON-formatted results, for each enumerated subdomain
+* `-active` to display active subdomains only
+
+**PLEASE NOTE** This command is run on the network, querying multiple internet sources, and as such is likely to take some time, typically needing 30 seconds or more. Please be patient and don't interrupt it unnecessarily. For additional informative use, `stderr` has been redirected to `stdout` to show error messages, if any.
+
+```elixir
+{subfinder_query_result, 0} =
+  System.cmd(
+    "bash",
+    ["-lc", "#{subfinder_binary} -d #{Kino.Input.read(domain)} -silent -json -active"],
+    stderr_to_stdout: true
+  )
+```
+
+With query results saved to `subfinder_query_results`, we now need to clean up the results by splitting away newline characters (`\n`), filtering out empty strings, and parsing the JSON results.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+subfinder_query_result
+|> String.split("\n")
+|> Enum.filter(fn i -> i != "" end)
+|> Enum.map(fn i -> Jason.decode!(i) end)
 ```
