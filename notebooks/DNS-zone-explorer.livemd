@@ -65,20 +65,36 @@ end
 ## Using Erlang's :inet_res builtin functionality
 
 ```elixir
-# res = 
-#   verified_domain
-#   |> DomainName.name()
-# |> :inet_res.resolve('magicpillsmovie.com', :in, :txt)
+defmodule DomainRecordQuerying do
+  def get_record_info(dns_name, type) when is_atom(type) do
+    dns_name
+    |> DomainName.name()
+    |> String.to_charlist()
+    |> :inet_res.resolve(:in, type)
+    |> case do
+      {:ok, res} ->
+        res
+        |> :inet_dns.msg()
+        |> Keyword.fetch!(:anlist)
+        |> Enum.map(fn i -> :inet_dns.rr(i) end)
 
-# res
-# |> :inet_dns.msg()
-# |> Keyword.fetch!(:anlist)
-# |> Enum.map(fn n -> :inet_dns.rr(n) end)
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
-# IEx.Helpers.i("test")
-# "test"
-# |> Kernel.to_charlist()
-# |> IEx.Helpers.i
+  def get_ns_records(parent_domain) do
+    get_record_info(parent_domain, :ns)
+  end
+
+  def get_mx_records(parent_domain) do
+    get_record_info(parent_domain, :mx)
+  end
+
+  def get_txt_records(parent_domain) do
+    get_record_info(parent_domain, :txt)
+  end
+end
 ```
 
 ## On DNS zone enumeration
@@ -128,8 +144,9 @@ With query results saved to `subfinder_query_results`, we now need to clean up t
 enumerated_subdomains =
   subfinder_query_result
   |> String.split("\n")
-  |> Enum.filter(fn i -> i != "" end)
-  |> Enum.map(fn i -> Jason.decode!(i) end)
+  |> Enum.filter(fn rec -> rec != "" end)
+  |> Enum.map(fn rec -> Jason.decode!(rec) end)
+  |> Enum.filter(fn %{"host" => host} -> host != DomainName.name(verified_domain) end)
 ```
 
 ## Creating a subdomain tree
@@ -138,9 +155,12 @@ To make reading and traversal of our zone easier, a `DnsRecord` structure will s
 
 ```elixir
 defmodule DnsRecord do
-  defstruct name: "",
+  defstruct id: "",
+            name: "",
+            display_name: "",
             type: "",
-            value: "",
+            data: "",
+            priority: nil,
             ttl: nil,
             children: [],
             query_tool: "",
@@ -149,15 +169,115 @@ end
 ```
 
 ```elixir
-enumerated_subdomains
-|> Enum.map(fn %{"host" => host, "source" => source} ->
-  %DnsRecord{
-    name: host,
-    type: "CNAME",
-    query_tool: "subfinder",
-    answer_source: source
-  }
-end)
+defmodule DnsZoneTree do
+  def construct_zone_tree(parent_domain, subdomain_list) do
+    get_ns_zone_records(parent_domain) ++
+      get_mx_zone_records(parent_domain) ++
+      get_txt_zone_records(parent_domain)
+  end
+
+  def construct_cname_zone_trees(parent_domain, subdomain_list) do
+    get_cname_zone_records(parent_domain, subdomain_list)
+  end
+
+  def get_ns_zone_records(parent_domain) do
+    parent_domain
+    |> DomainRecordQuerying.get_ns_records()
+    |> Enum.map(fn rec -> Enum.into(rec, %{}) end)
+    |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
+    |> Enum.map(fn rec -> construct_ns_dns_record(parent_domain, rec) end)
+  end
+
+  def get_mx_zone_records(parent_domain) do
+    parent_domain
+    |> DomainRecordQuerying.get_mx_records()
+    |> Enum.map(fn rec -> Enum.into(rec, %{}) end)
+    |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
+    |> Enum.map(fn rec -> construct_mx_dns_record(parent_domain, rec) end)
+  end
+
+  def get_txt_zone_records(parent_domain) do
+    parent_domain
+    |> DomainRecordQuerying.get_txt_records()
+    |> Enum.map(fn rec -> construct_dns_record(parent_domain, rec) end)
+  end
+
+  def get_cname_zone_records(parent_domain, subdomain_list) when is_list(subdomain_list) do
+    subdomain_list
+    |> Enum.map(fn rec -> construct_cname_dns_record(parent_domain, rec) end)
+    |> Enum.filter(fn rec -> not is_nil(rec) end)
+  end
+
+  def construct_dns_record(parent_domain, inet_dns_rr_record) do
+    %DnsRecord{
+      id: Kernel.to_string(inet_dns_rr_record[:domain]),
+      name: Kernel.to_string(inet_dns_rr_record[:domain]),
+      display_name: Kernel.to_string(inet_dns_rr_record[:domain]),
+      type: inet_dns_rr_record[:type],
+      data: Kernel.to_string(inet_dns_rr_record[:data]),
+      ttl: inet_dns_rr_record[:ttl]
+    }
+  end
+
+  def construct_ns_dns_record(_parent_domain, inet_dns_rr_record) do
+    %DnsRecord{
+      id: "ns-#{inet_dns_rr_record.id}",
+      name: Kernel.to_string(inet_dns_rr_record[:domain]),
+      display_name: "NS #{inet_dns_rr_record.id}",
+      type: inet_dns_rr_record[:type],
+      data: Kernel.to_string(inet_dns_rr_record[:data]),
+      ttl: inet_dns_rr_record[:ttl]
+    }
+  end
+
+  def construct_mx_dns_record(_parent_domain, inet_dns_rr_record) do
+    {priority, data} = inet_dns_rr_record.data
+
+    %DnsRecord{
+      id: "mx-#{inet_dns_rr_record.id}",
+      name: Kernel.to_string(inet_dns_rr_record[:domain]),
+      display_name: "MX #{inet_dns_rr_record.id}",
+      type: inet_dns_rr_record[:type],
+      priority: priority,
+      data: data,
+      ttl: inet_dns_rr_record[:ttl]
+    }
+  end
+
+  def construct_cname_dns_record(
+        parent_domain,
+        %{"host" => host, "source" => source} = _cname_record
+      ) do
+    inet_dns_rr_record =
+      DomainName.new!(host)
+      |> DomainRecordQuerying.get_record_info(:cname)
+
+    cond do
+      length(inet_dns_rr_record) > 0 ->
+        record = hd(inet_dns_rr_record)
+
+        {:ok, display_name} =
+          DomainName.without_suffix(
+            DomainName.new!(Kernel.to_string(record[:domain])),
+            parent_domain
+          )
+
+        %DnsRecord{
+          id: Kernel.to_string(record[:domain]),
+          name: Kernel.to_string(record[:domain]),
+          display_name: DomainName.name(display_name),
+          type: :cname,
+          data: Kernel.to_string(record[:data]),
+          ttl: record[:ttl],
+          query_tool: "subfinder",
+          answer_source: source
+        }
+
+      true ->
+        nil
+    end
+  end
+end
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
@@ -186,10 +306,6 @@ subdomains =
 
 As it will be necessary later, in the diagram generation and styling stage, let's calculate how many nodes we need to diagram, saving it into the `nmber_of_relationships` variable.
 
-```elixir
-number_of_relationships = length(subdomains)
-```
-
 ## Visualising the DNS zone
 
 With the information now gathered, we can create a usable flowchart diagram, presenting the zone visually. We will use [Mermaid](https://mermaid.js.org/) for this, as it is an easy to use tool for programmatic diagram creation.
@@ -202,6 +318,10 @@ To begin with, let's define invariant sections of the diagram definition: initia
 dns_zone_diagram_configuration =
   """
   %%{ init: { 
+    'theme': 'base',
+    'themeVariables': {
+      'clusterBkg': '#81a1c144;'
+    },
     'fontFamily': 'Calluna Sans, Helvetica, Trebuchet MS, Verdana, Arial, Sans-Serif',
     'flowchart': { 
       'curve': 'linear',
@@ -212,18 +332,7 @@ dns_zone_diagram_configuration =
 ```
 
 ```elixir
-diagram_type = "flowchart TD"
-```
-
-As Mermaid doesn't define unique IDs for edges (node connections), it instead affords styling links by the order number in which they were defined. Instead of overriding the style globally, we need to specify the link order. We'll use a simple generator to produce this list of edges, which we will dynamically insert into the styling definition.
-
-```elixir
-edges =
-  for i <- 0..(number_of_relationships - 1) do
-    "#{i}"
-  end
-
-full_edge_listing = Enum.join(edges, ",")
+diagram_type = "flowchart LR"
 ```
 
 In the following step, we insert the list of edges by order of definition.
@@ -231,9 +340,13 @@ In the following step, we insert the list of edges by order of definition.
 ```elixir
 diagram_styles =
   """
-  linkStyle #{full_edge_listing} stroke:#000,stroke-width:1px,color:#000
   classDef parent-node fill:turquoise;
-  classDef subdomain color:#222;
+  classDef parent-zone fill:#81a1c144;
+  classDef cname-record fill:#88c0d088;
+  classDef ns-record fill:#bf616a44;
+  classDef mx-record fill:#d0877099;
+  classDef txt-record fill:#ebcb8b88;
+  classDef a-record color:#222;
   """
 ```
 
@@ -241,12 +354,6 @@ First, we need a module, `ZoneTree` to convert this data into Mermaid flowchart 
 
 ```elixir
 defmodule ZoneTree do
-  def construct_tree(subdomain_list) when is_list(subdomain_list) do
-    for s <- subdomain_list, into: [] do
-      "parent-node --- #{s}([#{s}]):::subdomain"
-    end
-  end
-
   def define_parent_node(parent_domain) do
     strf_format_string = "%Y-%m-%d"
 
@@ -261,6 +368,67 @@ defmodule ZoneTree do
     Updated #{date_updated}
     Expiry #{date_expires}`\"]):::parent-node;"
   end
+
+  def define_dns_zone(parent_domain, subdomain_list) do
+    zone_tree = DnsZoneTree.construct_zone_tree(parent_domain, subdomain_list)
+
+    zone_records =
+      for rec <- zone_tree do
+        "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{if rec.type === :txt, do: "TXT: "}#{rec.display_name} #{if rec.type === :mx, do: ": " <> rec.name}
+        —
+        TTL #{rec.ttl}
+        #{if rec.type === :mx, do: rec.priority} #{rec.data}`\"])#{attach_style_class(rec.type)}"
+      end
+
+    zone_records
+    |> Enum.join(";")
+  end
+
+  def define_dns_sub_zones(parent_domain, subdomain_list) do
+    zone_tree = DnsZoneTree.construct_cname_zone_trees(parent_domain, subdomain_list)
+
+    zone_records =
+      for rec <- zone_tree do
+        "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{if rec.type === :txt, do: "TXT: "}#{rec.display_name} #{if rec.type === :mx, do: ": " <> rec.name}
+        —
+        TTL #{rec.ttl}
+        #{if rec.type === :mx, do: rec.priority} #{rec.data}`\"])#{attach_style_class(rec.type)}"
+      end
+
+    zone_records
+    |> Enum.join(";")
+  end
+
+  def define_link_type(type) when is_atom(type) do
+    case type do
+      :a -> "---"
+      :ns -> "-.-"
+      :mx -> "---"
+      :txt -> "---"
+      :cname -> "-----"
+      _ -> "---"
+    end
+  end
+
+  def attach_style_class(type) when is_atom(type) do
+    case type do
+      :a -> ":::a-record"
+      :ns -> ":::ns-record"
+      :mx -> ":::mx-record"
+      :txt -> ":::txt-record"
+      :cname -> ":::cname-record"
+      _ -> ""
+    end
+  end
+
+  def enumerate_relationships(zone_tree) do
+    edges =
+      for i <- 0..(length(zone_tree) - 1) do
+        "#{i}"
+      end
+
+    Enum.join(edges, ",")
+  end
 end
 ```
 
@@ -271,8 +439,16 @@ The `construct_tree/1` function takes the parent domain and the list of subdomai
 ```elixir
 parent_node = ZoneTree.define_parent_node(verified_domain)
 
-nodes =
-  ZoneTree.construct_tree(subdomains) |> Enum.join(";")
+parent_zone =
+  """
+  subgraph parent-zone [#{DomainName.name(verified_domain)} zone];
+    direction LR;
+    #{ZoneTree.define_dns_zone(verified_domain, enumerated_subdomains)};
+  end;
+  """
+
+zones =
+  ZoneTree.define_dns_sub_zones(verified_domain, enumerated_subdomains)
 ```
 
 Feeding this definition string into the scaffolded diagram definition provides us with the complete diagram definition.
@@ -285,7 +461,8 @@ dns_zone_diagram =
   #{dns_zone_diagram_configuration}
   #{diagram_type};
   #{parent_node}
-  #{nodes}
+  #{parent_zone}
+  #{zones}
   #{diagram_styles}
   """
 ```
