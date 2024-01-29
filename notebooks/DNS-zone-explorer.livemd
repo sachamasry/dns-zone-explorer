@@ -7,19 +7,78 @@ Mix.install([
   {:kino, "~> 0.12.3"},
   {:kino_shell, "~> 0.1.2"},
   {:jason, "~> 1.4"},
-  {:domainname, "~> 0.1.5"}
+  {:domainname, "~> 0.1.5"},
+  {:whois, "~> 0.2.1"}
 ])
+```
+
+## Domain entry, parsing and querying
+
+To begin, we need user input to know which domain to interrogate, saving the input into the `domain` variable.
+
+```elixir
+domain = Kino.Input.text("Enter your domain name")
+```
+
+The following will read and attempt to construct a valid domain name and parrot the user input back to us, as a simple form of feedback. If it fails, then an error will warn us of this at this stage.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+{:ok, verified_domain} =
+  DomainName.new(Kino.Input.read(domain),
+    must_be_hostname: true
+  )
+```
+
+```elixir
+defmodule DomainNameQuerying do
+  def domain_name_query(domain_name) do
+    domain_name
+    |> DomainName.name()
+    |> Whois.lookup()
+  end
+
+  def get_critical_domain_info(domain_name) do
+    case domain_name_query(domain_name) do
+      {:ok,
+       %Whois.Record{
+         registrar: registrar,
+         created_at: created_at,
+         updated_at: updated_at,
+         expires_at: expires_at
+       }} ->
+        %{
+          registrar: registrar,
+          created_at: created_at,
+          updated_at: updated_at,
+          expires_at: expires_at
+        }
+
+      {_, _} ->
+        {:error}
+    end
+  end
+end
 ```
 
 ## Using Erlang's :inet_res builtin functionality
 
 ```elixir
-{:ok, res} = :inet_res.resolve(~c"google.com", :in, :txt)
+# res = 
+#   verified_domain
+#   |> DomainName.name()
+# |> :inet_res.resolve('magicpillsmovie.com', :in, :txt)
 
-res
-|> :inet_dns.msg()
-|> Keyword.fetch!(:anlist)
-|> Enum.map(fn n -> :inet_dns.rr(n) end)
+# res
+# |> :inet_dns.msg()
+# |> Keyword.fetch!(:anlist)
+# |> Enum.map(fn n -> :inet_dns.rr(n) end)
+
+# IEx.Helpers.i("test")
+# "test"
+# |> Kernel.to_charlist()
+# |> IEx.Helpers.i
 ```
 
 ## On DNS zone enumeration
@@ -40,23 +99,6 @@ puredns_binary = System.get_env("LB_PUREDNS_BIN")
 subfinder_binary = System.get_env("LB_SUBFINDER_BIN")
 sublist3r_binary = System.get_env("LB_SUBLIST3R_BIN")
 :ok
-```
-
-Next, we need user input to know which domain to enumerate, saving the input into the `domain` variable.
-
-```elixir
-domain = Kino.Input.text("Enter your domain name")
-```
-
-The following will read and attempt to construct a valid domain name and parrot the user input back to us, as a simple form of feedback. If it fails, then an error will warn us of this at this stage.
-
-<!-- livebook:{"reevaluate_automatically":true} -->
-
-```elixir
-{:ok, verified_domain} =
-  DomainName.new(Kino.Input.read(domain),
-    must_be_hostname: true
-  )
 ```
 
 ## Subdomain enumeration
@@ -206,7 +248,18 @@ defmodule ZoneTree do
   end
 
   def define_parent_node(parent_domain) do
-    "parent-node([#{DomainName.name(parent_domain)}]):::parent-node;"
+    strf_format_string = "%Y-%m-%d"
+
+    domain_critical_info = DomainNameQuerying.get_critical_domain_info(parent_domain)
+    date_created = domain_critical_info.created_at |> Calendar.strftime(strf_format_string)
+    date_updated = domain_critical_info.updated_at |> Calendar.strftime(strf_format_string)
+    date_expires = domain_critical_info.expires_at |> Calendar.strftime(strf_format_string)
+
+    "parent-node([\"`#{DomainName.name(parent_domain)}
+    —
+    Created #{date_created}
+    Updated #{date_updated}
+    Expiry #{date_expires}`\"]):::parent-node;"
   end
 end
 ```
