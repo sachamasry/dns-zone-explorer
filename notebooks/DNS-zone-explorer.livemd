@@ -535,10 +535,6 @@ defmodule ZoneTree do
 end
 ```
 
-```elixir
-zone_tree = DnsZoneTree.construct_zone_tree(verified_domain)
-```
-
 The `construct_tree/1` function takes the parent domain and the list of subdomains, converting them to a node-and-relationship definition string.
 
 <!-- livebook:{"reevaluate_automatically":true} -->
@@ -556,16 +552,6 @@ parent_zone =
 
 zones =
   ZoneTree.define_dns_sub_zones(verified_domain, enumerated_subdomains)
-```
-
-```elixir
-scan_advice =
-  """
-  subgraph advice [Scan advice]
-  dkim-advice[#{dkim_advice}]
-  end
-  parent-zone -...- advice
-  """
 ```
 
 Feeding this definition string into the scaffolded diagram definition provides us with the complete diagram definition.
@@ -592,7 +578,7 @@ The diagram definition, stored in the `dns_zone_diagram` variable, can now be us
 Kino.Mermaid.new(dns_zone_diagram)
 ```
 
-## Advice
+## Audit summary and advice
 
 ```elixir
 Kino.Markdown.new("""
