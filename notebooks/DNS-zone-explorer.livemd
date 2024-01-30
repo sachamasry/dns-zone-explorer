@@ -62,6 +62,27 @@ defmodule DomainNameQuerying do
 end
 ```
 
+## Defining special variables
+
+Let's define a set of DKIM selectors in `dkim_selector_list`, as a valid selector is needed to query for a DKIM key.
+
+```elixir
+dkim_selector_list = ["mailjet", "pic"]
+```
+
+Let's get locations of all subdomain enumeration tools we may need, into variables we can use.
+
+```elixir
+amass_binary = System.get_env("LB_AMASS_BIN")
+assetfinder_binary = System.get_env("LB_ASSETFINDER_BIN")
+dnsrecon_binary = System.get_env("LB_DNSRECON_BIN")
+puredns_binary = System.get_env("LB_PUREDNS_BIN")
+subfinder_binary = System.get_env("LB_SUBFINDER_BIN")
+sublist3r_binary = System.get_env("LB_SUBLIST3R_BIN")
+dss_binary = System.get_env("LB_DSS_BIN")
+:ok
+```
+
 ## Using Erlang's :inet_res builtin functionality
 
 ```elixir
@@ -102,20 +123,6 @@ end
 For security reasons, it is difficult to get a true state of a DNS zone, as this is information which would be used by attackers in finding exploits.
 
 To enumerate subdomains of a domain, we will turn to several penetration testing tools.
-
-<!-- livebook:{"break_markdown":true} -->
-
-Let's get locations of all subdomain enumeration tools we may need, into variables we can use.
-
-```elixir
-amass_binary = System.get_env("LB_AMASS_BIN")
-assetfinder_binary = System.get_env("LB_ASSETFINDER_BIN")
-dnsrecon_binary = System.get_env("LB_DNSRECON_BIN")
-puredns_binary = System.get_env("LB_PUREDNS_BIN")
-subfinder_binary = System.get_env("LB_SUBFINDER_BIN")
-sublist3r_binary = System.get_env("LB_SUBLIST3R_BIN")
-:ok
-```
 
 ## Subdomain enumeration
 
@@ -159,6 +166,7 @@ defmodule DnsRecord do
             name: "",
             display_name: "",
             type: "",
+            special_type: "",
             data: "",
             priority: nil,
             ttl: nil,
@@ -170,7 +178,7 @@ end
 
 ```elixir
 defmodule DnsZoneTree do
-  def construct_zone_tree(parent_domain, subdomain_list) do
+  def construct_zone_tree(parent_domain) do
     get_ns_zone_records(parent_domain) ++
       get_mx_zone_records(parent_domain) ++
       get_txt_zone_records(parent_domain)
@@ -185,7 +193,17 @@ defmodule DnsZoneTree do
     |> DomainRecordQuerying.get_ns_records()
     |> Enum.map(fn rec -> Enum.into(rec, %{}) end)
     |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
-    |> Enum.map(fn rec -> construct_ns_dns_record(parent_domain, rec) end)
+    |> Enum.map(fn rec ->
+      construct_dns_record(%{
+        id: "ns-#{rec.id}",
+        name: "#{rec.domain}",
+        display_name: "NS #{rec.id}",
+        type: rec.type,
+        special_type: nil,
+        data: "#{rec.data}",
+        ttl: rec.ttl
+      })
+    end)
   end
 
   def get_mx_zone_records(parent_domain) do
@@ -193,89 +211,136 @@ defmodule DnsZoneTree do
     |> DomainRecordQuerying.get_mx_records()
     |> Enum.map(fn rec -> Enum.into(rec, %{}) end)
     |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
-    |> Enum.map(fn rec -> construct_mx_dns_record(parent_domain, rec) end)
+    |> Enum.map(fn rec ->
+      construct_dns_record(%{
+        id: "mx-#{rec.id}",
+        name: "#{rec.domain}",
+        display_name: "MX  #{rec.domain}",
+        type: rec.type,
+        special_type: nil,
+        priority: get_mx_record_priority_and_data(rec.data).priority,
+        data: Kernel.to_string(get_mx_record_priority_and_data(rec.data).data),
+        ttl: rec.ttl
+      })
+    end)
   end
 
   def get_txt_zone_records(parent_domain) do
     parent_domain
     |> DomainRecordQuerying.get_txt_records()
-    |> Enum.map(fn rec -> construct_dns_record(parent_domain, rec) end)
+    |> Enum.map(fn rec -> Enum.into(rec, %{}) end)
+    |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
+    |> Enum.map(fn rec ->
+      construct_dns_record(%{
+        id: "txt-#{rec.id}",
+        name: "#{rec.domain}",
+        display_name: "#{get_txt_record_special_type(rec)} #{rec.domain}",
+        type: rec.type,
+        special_type: get_txt_record_special_type(rec),
+        data: Enum.join(rec.data),
+        ttl: rec.ttl
+      })
+    end)
+  end
+
+  def get_txt_record_special_type(record) do
+    data_string = Enum.join(record.data)
+    spf_re = ~r/^v=spf1.*/
+
+    cond do
+      String.match?(data_string, spf_re) -> "SPF"
+      true -> "TXT"
+    end
+  end
+
+  def get_mx_record_priority_and_data(record) do
+    {priority, data} = record
+
+    %{priority: priority, data: data}
   end
 
   def get_cname_zone_records(parent_domain, subdomain_list) when is_list(subdomain_list) do
     subdomain_list
     |> Enum.map(fn rec -> construct_cname_dns_record(parent_domain, rec) end)
+    |> List.flatten()
     |> Enum.filter(fn rec -> not is_nil(rec) end)
+    |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
   end
 
-  def construct_dns_record(parent_domain, inet_dns_rr_record) do
-    %DnsRecord{
-      id: Kernel.to_string(inet_dns_rr_record[:domain]),
-      name: Kernel.to_string(inet_dns_rr_record[:domain]),
-      display_name: Kernel.to_string(inet_dns_rr_record[:domain]),
-      type: inet_dns_rr_record[:type],
-      data: Kernel.to_string(inet_dns_rr_record[:data]),
-      ttl: inet_dns_rr_record[:ttl]
-    }
-  end
+  def resolve_for_cname_or_a(host) do
+    parsed_host = DomainName.new!(host)
 
-  def construct_ns_dns_record(_parent_domain, inet_dns_rr_record) do
-    %DnsRecord{
-      id: "ns-#{inet_dns_rr_record.id}",
-      name: Kernel.to_string(inet_dns_rr_record[:domain]),
-      display_name: "NS #{inet_dns_rr_record.id}",
-      type: inet_dns_rr_record[:type],
-      data: Kernel.to_string(inet_dns_rr_record[:data]),
-      ttl: inet_dns_rr_record[:ttl]
-    }
-  end
+    cname_res = DomainRecordQuerying.get_record_info(parsed_host, :cname)
 
-  def construct_mx_dns_record(_parent_domain, inet_dns_rr_record) do
-    {priority, data} = inet_dns_rr_record.data
+    case cname_res do
+      [] ->
+        a_res = DomainRecordQuerying.get_record_info(parsed_host, :a)
 
-    %DnsRecord{
-      id: "mx-#{inet_dns_rr_record.id}",
-      name: Kernel.to_string(inet_dns_rr_record[:domain]),
-      display_name: "MX #{inet_dns_rr_record.id}",
-      type: inet_dns_rr_record[:type],
-      priority: priority,
-      data: data,
-      ttl: inet_dns_rr_record[:ttl]
-    }
-  end
+        case a_res do
+          [] -> nil
+          _ -> a_res
+        end
 
-  def construct_cname_dns_record(
-        parent_domain,
-        %{"host" => host, "source" => source} = _cname_record
-      ) do
-    inet_dns_rr_record =
-      DomainName.new!(host)
-      |> DomainRecordQuerying.get_record_info(:cname)
-
-    cond do
-      length(inet_dns_rr_record) > 0 ->
-        record = hd(inet_dns_rr_record)
-
-        {:ok, display_name} =
-          DomainName.without_suffix(
-            DomainName.new!(Kernel.to_string(record[:domain])),
-            parent_domain
-          )
-
-        %DnsRecord{
-          id: Kernel.to_string(record[:domain]),
-          name: Kernel.to_string(record[:domain]),
-          display_name: DomainName.name(display_name),
-          type: :cname,
-          data: Kernel.to_string(record[:data]),
-          ttl: record[:ttl],
-          query_tool: "subfinder",
-          answer_source: source
-        }
-
-      true ->
-        nil
+      _ ->
+        cname_res
     end
+  end
+
+  def construct_cname_dns_record(parent_domain, %{"host" => host, "source" => source}) do
+    host_name =
+      case get_host_name_without_domain(parent_domain, host) do
+        {:ok, name} -> name
+        {:error, _} -> nil
+      end
+
+    res = resolve_for_cname_or_a(host)
+
+    case res do
+      nil ->
+        nil
+
+      _ ->
+        Enum.map(res, fn r ->
+          construct_dns_record(%{
+            id: "#{r[:domain]}",
+            name: "#{r[:domain]}",
+            display_name: "#{DomainName.name(host_name)}",
+            type: r[:type],
+            special_type: "",
+            data: handle_subdomain_data(r[:data]),
+            ttl: r[:ttl],
+            query_tool: "subfinder",
+            answer_source: source
+          })
+        end)
+    end
+  end
+
+  def get_host_name_without_domain(parent_domain, host) do
+    DomainName.new!(host) |> DomainName.without_suffix(parent_domain)
+  end
+
+  def handle_subdomain_data(data) when is_tuple(data) do
+    data
+    |> Tuple.to_list()
+    |> Enum.join(".")
+  end
+
+  def handle_subdomain_data(data), do: Kernel.to_string(data)
+
+  def construct_dns_record(dns_record) when is_map(dns_record) do
+    %DnsRecord{
+      id: dns_record.id,
+      name: dns_record.name,
+      display_name: dns_record.display_name,
+      type: dns_record.type,
+      special_type: dns_record.special_type,
+      priority: Map.get(dns_record, :priority, nil),
+      data: dns_record.data,
+      ttl: dns_record.ttl,
+      query_tool: Map.get(dns_record, :query_tool, ""),
+      answer_source: Map.get(dns_record, :answer_source, "")
+    }
   end
 end
 ```
@@ -346,7 +411,7 @@ diagram_styles =
   classDef ns-record fill:#bf616a44;
   classDef mx-record fill:#d0877099;
   classDef txt-record fill:#ebcb8b88;
-  classDef a-record color:#222;
+  classDef a-record fill:#a3be8c99;
   """
 ```
 
@@ -369,12 +434,12 @@ defmodule ZoneTree do
     Expiry #{date_expires}`\"]):::parent-node;"
   end
 
-  def define_dns_zone(parent_domain, subdomain_list) do
-    zone_tree = DnsZoneTree.construct_zone_tree(parent_domain, subdomain_list)
+  def define_dns_zone(parent_domain) do
+    zone_tree = DnsZoneTree.construct_zone_tree(parent_domain)
 
     zone_records =
       for rec <- zone_tree do
-        "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{if rec.type === :txt, do: "TXT: "}#{rec.display_name} #{if rec.type === :mx, do: ": " <> rec.name}
+        "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{rec.display_name} 
         —
         TTL #{rec.ttl}
         #{if rec.type === :mx, do: rec.priority} #{rec.data}`\"])#{attach_style_class(rec.type)}"
@@ -389,7 +454,7 @@ defmodule ZoneTree do
 
     zone_records =
       for rec <- zone_tree do
-        "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{if rec.type === :txt, do: "TXT: "}#{rec.display_name} #{if rec.type === :mx, do: ": " <> rec.name}
+        "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{rec.display_name} #{if rec.type === :mx, do: ": " <> rec.name}
         —
         TTL #{rec.ttl}
         #{if rec.type === :mx, do: rec.priority} #{rec.data}`\"])#{attach_style_class(rec.type)}"
@@ -401,7 +466,7 @@ defmodule ZoneTree do
 
   def define_link_type(type) when is_atom(type) do
     case type do
-      :a -> "---"
+      :a -> "----"
       :ns -> "-.-"
       :mx -> "---"
       :txt -> "---"
@@ -432,6 +497,10 @@ defmodule ZoneTree do
 end
 ```
 
+```elixir
+zone_tree = DnsZoneTree.construct_zone_tree(verified_domain)
+```
+
 The `construct_tree/1` function takes the parent domain and the list of subdomains, converting them to a node-and-relationship definition string.
 
 <!-- livebook:{"reevaluate_automatically":true} -->
@@ -443,7 +512,7 @@ parent_zone =
   """
   subgraph parent-zone [#{DomainName.name(verified_domain)} zone];
     direction LR;
-    #{ZoneTree.define_dns_zone(verified_domain, enumerated_subdomains)};
+    #{ZoneTree.define_dns_zone(verified_domain)};
   end;
   """
 
