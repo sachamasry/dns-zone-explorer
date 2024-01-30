@@ -67,7 +67,31 @@ end
 Let's define a set of DKIM selectors in `dkim_selector_list`, as a valid selector is needed to query for a DKIM key.
 
 ```elixir
-dkim_selector_list = ["mailjet", "pic"]
+known_dkim_selector_list = [
+  # Generic
+  "x",
+  # Google
+  "google",
+  # Microsoft
+  "selector1",
+  # Microsoft
+  "selector2",
+  # MailChimp
+  "k1",
+  # Mandrill
+  "mandrill",
+  # Everlytic
+  "everlytickey1",
+  # Everlytic
+  "everlytickey2",
+  # Hetzner
+  "dkim",
+  # MxVault 
+  "mxvault",
+  # MailJet
+  "mailjet",
+  "pic"
+]
 ```
 
 Let's get locations of all subdomain enumeration tools we may need, into variables we can use.
@@ -116,6 +140,28 @@ defmodule DomainRecordQuerying do
     get_record_info(parent_domain, :txt)
   end
 end
+```
+
+```elixir
+### TO DELETE
+#   PROTOTYPE DKIM SCAN
+
+selector_query =
+  Enum.map(known_dkim_selector_list, fn sel ->
+    DomainRecordQuerying.get_record_info(
+      DomainName.new!("#{sel}._domainkey.magicpillsmovie.com"),
+      :txt
+    )
+  end)
+```
+
+```elixir
+### TO DELETE
+selector_query
+|> Enum.filter(fn
+  {:error, _} -> false
+  _ -> true
+end)
 ```
 
 ## On DNS zone enumeration
