@@ -156,6 +156,44 @@ enumerated_subdomains =
   |> Enum.filter(fn %{"host" => host} -> host != DomainName.name(verified_domain) end)
 ```
 
+## Get DKIM, DMARC and SPF records
+
+```elixir
+{dss_domain_scan, 0} =
+  System.cmd(
+    "bash",
+    [
+      "-lc",
+      "#{dss_binary} scan #{DomainName.name(verified_domain)} --advise --checkTls --format json"
+    ],
+    stderr_to_stdout: true
+  )
+```
+
+```elixir
+parsed_dss_domain_scan =
+  dss_domain_scan
+  |> Jason.decode!()
+```
+
+```elixir
+%{
+  "advice" => %{
+    "bimi" => bimi_advice,
+    "dkim" => dkim_advice,
+    "dmarc" => dmarc_advice,
+    "domain" => domain_advice,
+    "mx" => mx_advice,
+    "spf" => spf_advice
+  },
+  "scanResult" => %{
+    "dkim" => dkim_scan_result,
+    "dmarc" => dmarc_scan_result,
+    "spf" => spf_scan_result
+  }
+} = parsed_dss_domain_scan
+```
+
 ## Creating a subdomain tree
 
 To make reading and traversal of our zone easier, a `DnsRecord` structure will store all the relevant information for each record.
@@ -215,7 +253,7 @@ defmodule DnsZoneTree do
       construct_dns_record(%{
         id: "mx-#{rec.id}",
         name: "#{rec.domain}",
-        display_name: "MX  #{rec.domain}",
+        display_name: "MX #{rec.id}  #{rec.domain}",
         type: rec.type,
         special_type: nil,
         priority: get_mx_record_priority_and_data(rec.data).priority,
@@ -520,6 +558,16 @@ zones =
   ZoneTree.define_dns_sub_zones(verified_domain, enumerated_subdomains)
 ```
 
+```elixir
+scan_advice =
+  """
+  subgraph advice [Scan advice]
+  dkim-advice[#{dkim_advice}]
+  end
+  parent-zone -...- advice
+  """
+```
+
 Feeding this definition string into the scaffolded diagram definition provides us with the complete diagram definition.
 
 <!-- livebook:{"reevaluate_automatically":true} -->
@@ -542,4 +590,44 @@ The diagram definition, stored in the `dns_zone_diagram` variable, can now be us
 
 ```elixir
 Kino.Mermaid.new(dns_zone_diagram)
+```
+
+## Advice
+
+```elixir
+Kino.Markdown.new("""
+### BIMI
+
+#{Enum.join(bimi_advice, "\n\n")}
+
+
+### DKIM
+
+#{Enum.join(dkim_advice, "\n\n")}
+
+**DKIM record** _`#{String.slice(dkim_scan_result, 0..60)}...`_
+
+
+### DMARC
+
+#{Enum.join(dmarc_advice, "\n\n")}
+
+**DMARC record** _`#{dmarc_scan_result}`_
+
+### Domain
+
+#{Enum.join(domain_advice, "\n\n")}
+
+
+### MX
+
+#{Enum.join(mx_advice, "\n\n")}
+
+
+### SPF
+
+#{Enum.join(spf_advice, "\n\n")}
+
+**SPF record** _`#{spf_scan_result}`_
+""")
 ```
