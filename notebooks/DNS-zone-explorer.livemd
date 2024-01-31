@@ -64,6 +64,16 @@ end
 
 ## Defining special variables
 
+Email authentication is a collection of techniques aimed at providing verifiable information about the origin of email messages. Three authentication methods have been widely adopted: DKIM, SPF and DMARC. DKIM and DMARC are specified as DNS records, using specific _subdomain labels_, which we define in this section.
+
+BIMI is a branding specification, and as it is bound to be more widely used, we will specify its own subdomain label requirement as well.
+
+```elixir
+dkim_subdomain_label = "_domainkey"
+dmarc_subdomain_label = "_dmarc"
+bimi_subdomain_label = "_bimi"
+```
+
 Let's define a set of DKIM selectors in `dkim_selector_list`, as a valid selector is needed to query for a DKIM key.
 
 ```elixir
@@ -149,7 +159,7 @@ end
 selector_query =
   Enum.map(known_dkim_selector_list, fn sel ->
     DomainRecordQuerying.get_record_info(
-      DomainName.new!("#{sel}._domainkey.magicpillsmovie.com"),
+      DomainName.new!("#{sel}.#{dkim_subdomain_label}.magicpillsmovie.com"),
       :txt
     )
   end)
