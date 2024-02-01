@@ -100,6 +100,7 @@ known_dkim_selector_list = [
   "mxvault",
   # MailJet
   "mailjet",
+  # Avoccado.ai
   "pic"
 ]
 ```
@@ -131,7 +132,7 @@ defmodule DomainRecordQuerying do
         res
         |> :inet_dns.msg()
         |> Keyword.fetch!(:anlist)
-        |> Enum.map(fn i -> :inet_dns.rr(i) end)
+        |> Enum.map(fn i -> Enum.into(:inet_dns.rr(i), %{}) end)
 
       {:error, reason} ->
         {:error, reason}
@@ -149,29 +150,40 @@ defmodule DomainRecordQuerying do
   def get_txt_records(parent_domain) do
     get_record_info(parent_domain, :txt)
   end
+
+  def get_dmarc_record(parent_domain, dmarc_subdomain_label) do
+    construct_subdomain_host(parent_domain, dmarc_subdomain_label)
+    |> get_record_info(:txt)
+  end
+
+  def construct_subdomain_host(parent_domain, subdomain_label) do
+    DomainName.join!(subdomain_label, parent_domain)
+  end
+
+  def get_dkim_record(parent_domain, dkim_subdomain_label, known_dkim_selector_list)
+      when is_list(known_dkim_selector_list) do
+    dkim_subdomain = construct_subdomain_host(parent_domain, dkim_subdomain_label)
+
+    selector_query =
+      Enum.map(known_dkim_selector_list, fn sel ->
+        DomainRecordQuerying.get_record_info(
+          construct_subdomain_host(dkim_subdomain, sel),
+          :txt
+        )
+      end)
+      |> Enum.filter(fn
+        {:error, _} -> false
+        _ -> true
+      end)
+      |> List.flatten()
+  end
 end
-```
 
-```elixir
-### TO DELETE
-#   PROTOTYPE DKIM SCAN
-
-selector_query =
-  Enum.map(known_dkim_selector_list, fn sel ->
-    DomainRecordQuerying.get_record_info(
-      DomainName.new!("#{sel}.#{dkim_subdomain_label}.magicpillsmovie.com"),
-      :txt
-    )
-  end)
-```
-
-```elixir
-### TO DELETE
-selector_query
-|> Enum.filter(fn
-  {:error, _} -> false
-  _ -> true
-end)
+DomainRecordQuerying.get_dkim_record(
+  verified_domain,
+  dkim_subdomain_label,
+  known_dkim_selector_list
+)
 ```
 
 ## On DNS zone enumeration
