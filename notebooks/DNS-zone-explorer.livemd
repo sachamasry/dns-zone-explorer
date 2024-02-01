@@ -164,27 +164,23 @@ defmodule DomainRecordQuerying do
       when is_list(known_dkim_selector_list) do
     dkim_subdomain = construct_subdomain_host(parent_domain, dkim_subdomain_label)
 
-    selector_query =
-      Enum.map(known_dkim_selector_list, fn sel ->
-        DomainRecordQuerying.get_record_info(
-          construct_subdomain_host(dkim_subdomain, sel),
-          :txt
-        )
-      end)
-      |> Enum.filter(fn
-        {:error, _} -> false
-        _ -> true
-      end)
-      |> List.flatten()
+    Enum.map(known_dkim_selector_list, fn sel ->
+      DomainRecordQuerying.get_record_info(
+        construct_subdomain_host(dkim_subdomain, sel),
+        :txt
+      )
+    end)
+    |> Enum.filter(fn
+      {:error, _} -> false
+      _ -> true
+    end)
   end
 end
-
-DomainRecordQuerying.get_dkim_record(
-  verified_domain,
-  dkim_subdomain_label,
-  known_dkim_selector_list
-)
 ```
+
+As any record query may return a `CNAME`—or a _canonical name_—response, which the client will immediately query all the way until it encounters a non-CNAME response, we will receive a response list. This possibility needs to be checked, as it means getting multiple answer records, and this needs to be handled appropriately.
+
+Two ways present themselves, the quick one being to discard all but the last record in the list, as this is likely to be the final one, and the one we actually want. Doing this, however, means eliding potentially useful information, at least for debugging, as it would not be clear how we came to the final record, without seeing the alias traversals within. In cases of DNS cache poisoning, discovering unexpected `CNAME` records is critical in spotting vulnerabilities, so they should be kept and reported on for a full picture of the state of the zone.
 
 ## On DNS zone enumeration
 
