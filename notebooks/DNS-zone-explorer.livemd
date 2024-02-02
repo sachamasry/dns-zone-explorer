@@ -616,7 +616,8 @@ subdomains =
 ```
 
 ```elixir
-DnsZoneTree.get_a_zone_records(verified_domain)
+dns_zone_tree =
+  DnsZoneTree.get_a_zone_records(verified_domain)
 ```
 
 ```elixir
@@ -633,6 +634,38 @@ DnsZoneTree.construct_cname_zone_trees(verified_domain, enumerated_subdomains)
 ```
 
 ## DNS record list
+
+```elixir
+defmodule DnsZone.RecordList do
+  def dns_zone_table_header() do
+    """
+    | Name |  TTL |  Type | Value |
+    | :--- | ---: | ----: | :---  | 
+    """
+  end
+
+  def construct_dns_table_records(dns_zone_tree) do
+    dns_zone_tree
+    |> Enum.map(fn rec ->
+      "| #{rec.name} | #{rec.ttl} | #{String.upcase(Kernel.to_string(rec.type))} | #{rec.data} |"
+    end)
+    |> Enum.join("\n")
+  end
+
+  def construct_dns_zone_table(table_header, tabular_records) do
+    table_header <> tabular_records
+  end
+end
+```
+
+```elixir
+Kino.Markdown.new(
+  DnsZone.RecordList.construct_dns_zone_table(
+    DnsZone.RecordList.dns_zone_table_header(),
+    DnsZone.RecordList.construct_dns_table_records(dns_zone_tree)
+  )
+)
+```
 
 ## Visualising the DNS zone
 
