@@ -139,6 +139,10 @@ defmodule DomainRecordQuerying do
     end
   end
 
+  def get_a_records(parent_domain) do
+    get_record_info(parent_domain, :a)
+  end
+
   def get_ns_records(parent_domain) do
     get_record_info(parent_domain, :ns)
   end
@@ -308,6 +312,24 @@ defmodule DnsZoneTree do
 
   def construct_cname_zone_trees(parent_domain, subdomain_list) do
     get_cname_zone_records(parent_domain, subdomain_list)
+  end
+
+  def get_a_zone_records(parent_domain) do
+    parent_domain
+    |> DomainRecordQuerying.get_a_records()
+    |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
+    |> Enum.map(fn rec ->
+      construct_dns_record(%{
+        id: "#{rec.domain}",
+        name: "#{rec.domain}",
+        display_name: "#{rec.domain}",
+        type: rec.type,
+        special_type: nil,
+        data: handle_record_data(rec.data),
+        ttl: rec.ttl,
+        children: []
+      })
+    end)
   end
 
   def get_ns_zone_records(parent_domain) do
@@ -526,7 +548,7 @@ defmodule DnsZoneTree do
       display_name: "#{DomainName.name(host_name)}",
       type: record.type,
       special_type: "",
-      data: handle_subdomain_data(record.data),
+      data: handle_record_data(record.data),
       ttl: record.ttl,
       children: children,
       query_tool: tool,
@@ -543,13 +565,13 @@ defmodule DnsZoneTree do
     end
   end
 
-  def handle_subdomain_data(data) when is_tuple(data) do
+  def handle_record_data(data) when is_tuple(data) do
     data
     |> Tuple.to_list()
     |> Enum.join(".")
   end
 
-  def handle_subdomain_data(data), do: Kernel.to_string(data)
+  def handle_record_data(data), do: Kernel.to_string(data)
 
   def construct_dns_record(dns_record) when is_map(dns_record) do
     %DnsRecord{
@@ -593,7 +615,24 @@ subdomains =
   |> Enum.filter(fn i -> i != "" end)
 ```
 
-As it will be necessary later, in the diagram generation and styling stage, let's calculate how many nodes we need to diagram, saving it into the `number_of_relationships` variable.
+```elixir
+DnsZoneTree.get_a_zone_records(verified_domain)
+```
+
+```elixir
+DnsZoneTree.construct_zone_tree(
+  verified_domain,
+  dmarc_subdomain_label,
+  dkim_subdomain_label,
+  known_dkim_selector_list
+)
+```
+
+```elixir
+DnsZoneTree.construct_cname_zone_trees(verified_domain, enumerated_subdomains)
+```
+
+## DNS record list
 
 ## Visualising the DNS zone
 
