@@ -617,20 +617,14 @@ subdomains =
 
 ```elixir
 dns_zone_tree =
-  DnsZoneTree.get_a_zone_records(verified_domain)
-```
-
-```elixir
-DnsZoneTree.construct_zone_tree(
-  verified_domain,
-  dmarc_subdomain_label,
-  dkim_subdomain_label,
-  known_dkim_selector_list
-)
-```
-
-```elixir
-DnsZoneTree.construct_cname_zone_trees(verified_domain, enumerated_subdomains)
+  (DnsZoneTree.get_a_zone_records(verified_domain) ++
+     DnsZoneTree.get_cname_zone_records(verified_domain, enumerated_subdomains) ++
+     DnsZoneTree.get_mx_zone_records(verified_domain) ++
+     DnsZoneTree.get_txt_zone_records(verified_domain) ++
+     DnsZoneTree.get_dmarc_record(verified_domain, dmarc_subdomain_label) ++
+     DnsZoneTree.get_dkim_records(verified_domain, dkim_subdomain_label, known_dkim_selector_list) ++
+     DnsZoneTree.get_ns_zone_records(verified_domain))
+  |> Enum.sort_by(fn rec -> {rec.type, rec.name, rec.data} end)
 ```
 
 ## DNS record list
