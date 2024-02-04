@@ -143,12 +143,20 @@ defmodule DomainRecordQuerying do
     get_record_info(parent_domain, :a)
   end
 
+  def get_aaaa_records(parent_domain) do
+    get_record_info(parent_domain, :aaaa)
+  end
+
   def get_ns_records(parent_domain) do
     get_record_info(parent_domain, :ns)
   end
 
   def get_mx_records(parent_domain) do
     get_record_info(parent_domain, :mx)
+  end
+
+  def get_ptr_records(parent_domain) do
+    get_record_info(parent_domain, :ptr)
   end
 
   def get_txt_records(parent_domain) do
@@ -180,14 +188,6 @@ defmodule DomainRecordQuerying do
     end)
   end
 end
-```
-
-```elixir
-DomainRecordQuerying.get_dkim_records(
-  verified_domain,
-  dkim_subdomain_label,
-  known_dkim_selector_list
-)
 ```
 
 As any record query may return a `CNAME`—or a _canonical name_—response, which the client will immediately query all the way until it encounters a non-CNAME response, we will receive a response list. This possibility needs to be checked, as it means getting multiple answer records, and this needs to be handled appropriately.
@@ -312,6 +312,27 @@ defmodule DnsZoneTree do
 
   def construct_cname_zone_trees(parent_domain, subdomain_list) do
     get_cname_zone_records(parent_domain, subdomain_list)
+  end
+
+  def construct_dns_zone_tree(
+        parent_domain,
+        subdomain_list,
+        dmarc_subdomain_label,
+        dkim_subdomain_label,
+        known_dkim_selector_list
+      ) do
+    (get_a_zone_records(parent_domain) ++
+       get_cname_zone_records(parent_domain, subdomain_list) ++
+       get_mx_zone_records(parent_domain) ++
+       get_txt_zone_records(parent_domain) ++
+       get_dmarc_record(parent_domain, dmarc_subdomain_label) ++
+       get_dkim_records(
+         parent_domain,
+         dkim_subdomain_label,
+         known_dkim_selector_list
+       ) ++
+       DnsZoneTree.get_ns_zone_records(parent_domain))
+    |> Enum.sort_by(fn rec -> {rec.type, rec.name, rec.data} end)
   end
 
   def get_a_zone_records(parent_domain) do
@@ -458,7 +479,7 @@ defmodule DnsZoneTree do
       special_type: Map.get(record, :special_type, ""),
       data:
         case Map.get(record, :special_type, "") do
-          "DKIM" -> String.slice(Enum.join(record.data), 0..25) <> "..."
+          "DKIM" -> Enum.join(record.data)
           _ -> Enum.join(record.data)
         end,
       ttl: record.ttl,
@@ -617,14 +638,13 @@ subdomains =
 
 ```elixir
 dns_zone_tree =
-  (DnsZoneTree.get_a_zone_records(verified_domain) ++
-     DnsZoneTree.get_cname_zone_records(verified_domain, enumerated_subdomains) ++
-     DnsZoneTree.get_mx_zone_records(verified_domain) ++
-     DnsZoneTree.get_txt_zone_records(verified_domain) ++
-     DnsZoneTree.get_dmarc_record(verified_domain, dmarc_subdomain_label) ++
-     DnsZoneTree.get_dkim_records(verified_domain, dkim_subdomain_label, known_dkim_selector_list) ++
-     DnsZoneTree.get_ns_zone_records(verified_domain))
-  |> Enum.sort_by(fn rec -> {rec.type, rec.name, rec.data} end)
+  DnsZoneTree.construct_dns_zone_tree(
+    verified_domain,
+    enumerated_subdomains,
+    dmarc_subdomain_label,
+    dkim_subdomain_label,
+    known_dkim_selector_list
+  )
 ```
 
 ## DNS record list
@@ -651,6 +671,8 @@ defmodule DnsZone.RecordList do
   end
 end
 ```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 Kino.Markdown.new(
@@ -755,7 +777,7 @@ defmodule ZoneTree do
     "#{parent_node} #{define_link_type(record.type)} #{record.id}([\"`#{record.display_name} 
         —
         TTL #{record.ttl}
-        #{if record.type === :mx, do: record.priority} #{record.data}`\"])#{attach_style_class(record.type)};
+        #{if record.type === :mx, do: record.priority} #{if record.special_type == "DKIM", do: String.slice(record.data, 0..25) <> "...", else: record.data}`\"])#{attach_style_class(record.type)};
         #{if Map.get(record, :children, []) != [], do: construct_zone_records(record.id, record.children)}"
   end
 
@@ -767,7 +789,7 @@ defmodule ZoneTree do
         "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{rec.display_name} #{if rec.type === :mx, do: ": " <> rec.name}
         —
         TTL #{rec.ttl}
-        #{if rec.type === :mx, do: rec.priority} #{rec.data}`\"])#{attach_style_class(rec.type)}"
+        #{if rec.type === :mx, do: rec.priority} #{if rec.special_type == "DKIM", do: String.slice(rec.data, 0..25) <> "...", else: rec.data}`\"])#{attach_style_class(rec.type)}"
       end
 
     zone_records
