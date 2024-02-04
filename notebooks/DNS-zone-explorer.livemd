@@ -139,38 +139,25 @@ defmodule DomainRecordQuerying do
     end
   end
 
-  def get_a_records(parent_domain) do
-    get_record_info(parent_domain, :a)
-  end
+  def get_soa_records(parent_domain), do: get_record_info(parent_domain, :soa)
 
-  def get_aaaa_records(parent_domain) do
-    get_record_info(parent_domain, :aaaa)
-  end
+  def get_a_records(parent_domain), do: get_record_info(parent_domain, :a)
 
-  def get_ns_records(parent_domain) do
-    get_record_info(parent_domain, :ns)
-  end
+  def get_aaaa_records(parent_domain), do: get_record_info(parent_domain, :aaaa)
 
-  def get_mx_records(parent_domain) do
-    get_record_info(parent_domain, :mx)
-  end
+  def get_ns_records(parent_domain), do: get_record_info(parent_domain, :ns)
 
-  def get_ptr_records(parent_domain) do
-    get_record_info(parent_domain, :ptr)
-  end
+  def get_mx_records(parent_domain), do: get_record_info(parent_domain, :mx)
 
-  def get_txt_records(parent_domain) do
-    get_record_info(parent_domain, :txt)
-  end
+  def get_ptr_records(parent_domain), do: get_record_info(parent_domain, :ptr)
 
-  def get_dmarc_record(parent_domain, dmarc_subdomain_label) do
-    construct_subdomain_host(parent_domain, dmarc_subdomain_label)
-    |> get_record_info(:txt)
-  end
+  def get_txt_records(parent_domain), do: get_record_info(parent_domain, :txt)
 
-  def construct_subdomain_host(parent_domain, subdomain_label) do
-    DomainName.join!(subdomain_label, parent_domain)
-  end
+  def get_dmarc_record(parent_domain, dmarc_subdomain_label),
+    do: construct_subdomain_host(parent_domain, dmarc_subdomain_label) |> get_record_info(:txt)
+
+  def construct_subdomain_host(parent_domain, subdomain_label),
+    do: DomainName.join!(subdomain_label, parent_domain)
 
   def get_dkim_records(parent_domain, dkim_subdomain_label, selector_list)
       when is_list(selector_list) do
@@ -235,6 +222,14 @@ enumerated_subdomains =
     |> Map.merge(%{tool: "subfinder"})
   end)
   |> Enum.filter(fn %{host: host} -> host != DomainName.name(verified_domain) end)
+```
+
+```elixir
+### TEMP: Search for SOA records, indicating a zone
+enumerated_subdomains
+|> Enum.map(fn rec -> rec.host end)
+|> Enum.map(fn rec -> DomainName.new!(rec) end)
+|> Enum.map(fn rec -> DomainRecordQuerying.get_soa_records(rec) end)
 ```
 
 ## Get DKIM, DMARC and SPF records
