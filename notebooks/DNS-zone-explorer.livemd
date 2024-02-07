@@ -161,46 +161,63 @@ defmodule Dns.Query do
     end
   end
 
-  def get_soa_records(parent_domain) do
-    get_record_info(parent_domain, :soa) |> filter_for_matching_type(:soa)
+  def get_a_records(fqdn) do
+    get_record_info(fqdn, :a) |> filter_for_matching_type(:a)
   end
 
-  def get_a_records(parent_domain) do
-    get_record_info(parent_domain, :a) |> filter_for_matching_type(:a)
+  def get_aaaa_records(fqdn) do
+    get_record_info(fqdn, :aaaa) |> filter_for_matching_type(:aaaa)
   end
 
-  def get_aaaa_records(parent_domain) do
-    get_record_info(parent_domain, :aaaa) |> filter_for_matching_type(:aaaa)
+  def get_cname_record(fqdn) do
+    get_record_info(fqdn, :cname) |> filter_for_matching_type(:cname)
   end
 
-  def get_ns_records(parent_domain) do
-    get_record_info(parent_domain, :ns) |> filter_for_matching_type(:ns)
+  def resolves_to_already_seen?(record_list, domains_seen)
+      when is_list(record_list) and is_list(domains_seen) do
+    Enum.map(record_list, fn rec ->
+      Enum.map(domains_seen, fn domain ->
+        rec.data
+        |> DomainName.new!()
+        |> DomainName.equal?(domain)
+      end)
+    end)
+    |> List.flatten()
+    |> Enum.any?(fn i -> i end)
   end
 
-  def get_mx_records(parent_domain) do
-    get_record_info(parent_domain, :mx) |> filter_for_matching_type(:mx)
+  def get_ns_records(fqdn) do
+    get_record_info(fqdn, :ns) |> filter_for_matching_type(:ns)
   end
 
-  def get_ptr_records(parent_domain) do
-    get_record_info(parent_domain, :ptr) |> filter_for_matching_type(:ptr)
+  def get_mx_records(fqdn) do
+    get_record_info(fqdn, :mx) |> filter_for_matching_type(:mx)
   end
 
-  def get_txt_records(parent_domain) do
-    get_record_info(parent_domain, :txt) |> filter_for_matching_type(:txt)
+  def get_ptr_records(fqdn) do
+    get_record_info(fqdn, :ptr) |> filter_for_matching_type(:ptr)
   end
 
-  def get_dmarc_record(parent_domain, dmarc_subdomain_label) do
-    construct_subdomain_host(parent_domain, dmarc_subdomain_label)
+  def get_soa_records(fqdn) do
+    get_record_info(fqdn, :soa) |> filter_for_matching_type(:soa)
+  end
+
+  def get_txt_records(fqdn) do
+    get_record_info(fqdn, :txt) |> filter_for_matching_type(:txt)
+  end
+
+  def get_dmarc_record(fqdn, dmarc_subdomain_label) do
+    construct_subdomain_host(fqdn, dmarc_subdomain_label)
     |> get_record_info(:txt)
     |> filter_for_matching_type(:txt)
   end
 
-  def construct_subdomain_host(parent_domain, subdomain_label),
-    do: DomainName.join!(subdomain_label, parent_domain)
+  def construct_subdomain_host(fqdn, subdomain_label),
+    do: DomainName.join!(subdomain_label, fqdn)
 
-  def get_dkim_records(parent_domain, dkim_subdomain_label, selector_list)
+  def get_dkim_records(fqdn, dkim_subdomain_label, selector_list)
       when is_list(selector_list) do
-    dkim_subdomain = construct_subdomain_host(parent_domain, dkim_subdomain_label)
+    dkim_subdomain = construct_subdomain_host(fqdn, dkim_subdomain_label)
 
     Enum.map(selector_list, fn sel ->
       get_record_info(
@@ -208,35 +225,13 @@ defmodule Dns.Query do
         :txt
       )
     end)
-    |> filter_for_matching_type(:txt)
-
-    # |> Enum.filter(fn
-    #   {:error, _} -> false
-    #   _ -> true
-    # end)
+    # |> filter_for_matching_type(:txt)
+    |> Enum.filter(fn
+      {:error, _} -> false
+      _ -> true
+    end)
   end
 end
-```
-
-```elixir
-# "email.reply"
-"school"
-|> DomainName.join!(verified_domain)
-|> Dns.Query.get_a_records()
-
-# |> Dns.Query.filter_for_matching_type(:soa)
-# |> case do
-#   {:ok, msg} ->
-#     msg
-#     |> Enum.reverse()
-#     |> case do
-#       [%{type: :cname} | _tail] -> msg
-#       _ -> []
-#     end
-
-#   {:error, _} ->
-#     []
-# end
 ```
 
 As any record query may return a `CNAME`—or a _canonical name_—response, which the client will immediately query all the way until it encounters a non-CNAME response, we will receive a response list. This possibility needs to be checked, as it means getting multiple answer records, and this needs to be handled appropriately.
@@ -330,6 +325,9 @@ defmodule Dns.Core do
 
       [error: _] ->
         []
+
+      record_list when is_list(record_list) ->
+        record_list |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
 
       [] ->
         []
@@ -425,6 +423,7 @@ end
 
 ```elixir
 defmodule Dns.ZoneTree do
+  # To deprecate
   def construct_zone_tree(
         parent_domain,
         dmarc_subdomain_label,
@@ -438,6 +437,7 @@ defmodule Dns.ZoneTree do
       get_dkim_records(parent_domain, dkim_subdomain_label, known_dkim_selector_list)
   end
 
+  # To deprecate
   def construct_cname_zone_trees(
         parent_domain,
         subdomain_list,
@@ -549,8 +549,7 @@ defmodule Dns.ZoneTree do
   def get_a_zone_records(parent_domain) do
     parent_domain
     |> Dns.Query.get_a_records()
-
-    # |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload()
   end
 
   def construct_a_record(record) do
@@ -614,6 +613,7 @@ defmodule Dns.ZoneTree do
   def construct_cname_tree(rec, [head | []], child_records, acc, info_map) do
     host_name = DomainName.join!([head, acc])
     fqdn = DomainName.join!(DomainName.name(host_name), info_map.parent_domain)
+
     IO.inspect(acc, label: "Acc")
     IO.inspect(host_name, label: "Host")
     IO.inspect(fqdn, label: "FQDN")
@@ -621,28 +621,38 @@ defmodule Dns.ZoneTree do
     Map.merge(rec, %{
       host_name: host_name,
       fqdn: fqdn,
-      children: [
-        # Dns.ZoneTree.construct_dns_zone_tree(
-        #   host_name,
-        #   [],
-        #   info_map.dmarc_subdomain_label,
-        #   info_map.dkim_subdomain_label,
-        #   info_map.known_dkim_selector_list
-        # )
+      children:
+        Dns.Query.get_cname_record(fqdn)
+        |> Dns.Query.resolves_to_already_seen?([info_map.parent_domain])
+        |> case do
+          true ->
+            []
 
-        get_soa_zone_record(fqdn),
-        # get_ns_zone_records(fqdn),
-        # get_mx_zone_records(fqdn),
-        # get_a_zone_records(fqdn),
-        # get_txt_zone_records(fqdn),
-        # get_dmarc_record(fqdn, info_map.dmarc_subdomain_label),
-        # get_dkim_records(
-        #   fqdn,
-        #   info_map.dkim_subdomain_label,
-        #   info_map.known_dkim_selector_list
-        # ),
-        construct_cname_tree(rec, child_records, [], DomainName.name(host_name), info_map)
-      ]
+          false ->
+            [
+              # Dns.ZoneTree.construct_dns_zone_tree(
+              #   host_name,
+              #   [],
+              #   info_map.dmarc_subdomain_label,
+              #   info_map.dkim_subdomain_label,
+              #   info_map.known_dkim_selector_list
+              # )
+
+              get_soa_zone_record(fqdn),
+              get_ns_zone_records(fqdn),
+              get_mx_zone_records(fqdn),
+              get_a_zone_records(fqdn),
+              get_txt_zone_records(fqdn),
+              get_dmarc_record(fqdn, info_map.dmarc_subdomain_label),
+              get_dkim_records(
+                fqdn,
+                info_map.dkim_subdomain_label,
+                info_map.known_dkim_selector_list
+              ),
+              construct_cname_tree(rec, child_records, [], DomainName.name(host_name), info_map)
+            ]
+            |> Enum.reject(fn i -> i == [] end)
+        end
     })
   end
 
@@ -656,6 +666,7 @@ defmodule Dns.ZoneTree do
     # })
   end
 
+  # Deprecated
   def resolve_for_cname_or_a(host) do
     parsed_host = DomainName.new!(host)
 
@@ -700,6 +711,7 @@ defmodule Dns.ZoneTree do
   def resolve_chain(parent_domain, [head | tail], child_records),
     do: resolve_chain(parent_domain, [head], tail)
 
+  # Deprecated
   def resolve_cname_chain(parent_domain, record, []) do
     case record.type do
       :cname ->
@@ -838,15 +850,11 @@ x_zone_tree =
 ```
 
 ```elixir
-Dns.ZoneTree.get_dkim_records(verified_domain, dkim_subdomain_label, known_dkim_selector_list)
-```
-
-```elixir
 x_zone_tree
 |> hd()
 |> Map.get(:children)
-|> Enum.reject(fn i -> match?([], i) end)
 
+# |> Enum.reject(fn i -> match?([], i) end)
 # |> Kino.Tree.new()
 # |> Enum.uniq()
 # |> length()
