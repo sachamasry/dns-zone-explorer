@@ -133,29 +133,67 @@ defmodule Dns.Query do
          res
          |> :inet_dns.msg()
          |> Keyword.fetch!(:anlist)
-         |> Enum.map(fn i -> Enum.into(:inet_dns.rr(i), %{}) end)}
+         |> Enum.map(fn i -> Enum.into(:inet_dns.rr(i), %{}) end)
+         |> Enum.map(fn i ->
+           Map.merge(i, %{
+             query_tool: "inet_res",
+             answer_source: "#{String.upcase(Kernel.to_string(type))} query"
+           })
+         end)}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  def get_soa_records(parent_domain), do: get_record_info(parent_domain, :soa)
+  def filter_for_matching_type(response, type) do
+    case response do
+      {:ok, msg} ->
+        msg
+        |> Enum.reverse()
+        |> case do
+          [%{type: ^type} | _tail] -> msg
+          _ -> []
+        end
 
-  def get_a_records(parent_domain), do: get_record_info(parent_domain, :a)
+      {:error, _} ->
+        []
+    end
+  end
 
-  def get_aaaa_records(parent_domain), do: get_record_info(parent_domain, :aaaa)
+  def get_soa_records(parent_domain) do
+    get_record_info(parent_domain, :soa) |> filter_for_matching_type(:soa)
+  end
 
-  def get_ns_records(parent_domain), do: get_record_info(parent_domain, :ns)
+  def get_a_records(parent_domain) do
+    get_record_info(parent_domain, :a) |> filter_for_matching_type(:a)
+  end
 
-  def get_mx_records(parent_domain), do: get_record_info(parent_domain, :mx)
+  def get_aaaa_records(parent_domain) do
+    get_record_info(parent_domain, :aaaa) |> filter_for_matching_type(:aaaa)
+  end
 
-  def get_ptr_records(parent_domain), do: get_record_info(parent_domain, :ptr)
+  def get_ns_records(parent_domain) do
+    get_record_info(parent_domain, :ns) |> filter_for_matching_type(:ns)
+  end
 
-  def get_txt_records(parent_domain), do: get_record_info(parent_domain, :txt)
+  def get_mx_records(parent_domain) do
+    get_record_info(parent_domain, :mx) |> filter_for_matching_type(:mx)
+  end
 
-  def get_dmarc_record(parent_domain, dmarc_subdomain_label),
-    do: construct_subdomain_host(parent_domain, dmarc_subdomain_label) |> get_record_info(:txt)
+  def get_ptr_records(parent_domain) do
+    get_record_info(parent_domain, :ptr) |> filter_for_matching_type(:ptr)
+  end
+
+  def get_txt_records(parent_domain) do
+    get_record_info(parent_domain, :txt) |> filter_for_matching_type(:txt)
+  end
+
+  def get_dmarc_record(parent_domain, dmarc_subdomain_label) do
+    construct_subdomain_host(parent_domain, dmarc_subdomain_label)
+    |> get_record_info(:txt)
+    |> filter_for_matching_type(:txt)
+  end
 
   def construct_subdomain_host(parent_domain, subdomain_label),
     do: DomainName.join!(subdomain_label, parent_domain)
@@ -170,12 +208,35 @@ defmodule Dns.Query do
         :txt
       )
     end)
-    |> Enum.filter(fn
-      {:error, _} -> false
-      _ -> true
-    end)
+    |> filter_for_matching_type(:txt)
+
+    # |> Enum.filter(fn
+    #   {:error, _} -> false
+    #   _ -> true
+    # end)
   end
 end
+```
+
+```elixir
+# "email.reply"
+"school"
+|> DomainName.join!(verified_domain)
+|> Dns.Query.get_a_records()
+
+# |> Dns.Query.filter_for_matching_type(:soa)
+# |> case do
+#   {:ok, msg} ->
+#     msg
+#     |> Enum.reverse()
+#     |> case do
+#       [%{type: :cname} | _tail] -> msg
+#       _ -> []
+#     end
+
+#   {:error, _} ->
+#     []
+# end
 ```
 
 As any record query may return a `CNAME`—or a _canonical name_—response, which the client will immediately query all the way until it encounters a non-CNAME response, we will receive a response list. This possibility needs to be checked, as it means getting multiple answer records, and this needs to be handled appropriately.
@@ -488,7 +549,8 @@ defmodule Dns.ZoneTree do
   def get_a_zone_records(parent_domain) do
     parent_domain
     |> Dns.Query.get_a_records()
-    |> Dns.Core.handle_record_payload()
+
+    # |> Dns.Core.handle_record_payload()
   end
 
   def construct_a_record(record) do
@@ -569,16 +631,16 @@ defmodule Dns.ZoneTree do
         # )
 
         get_soa_zone_record(fqdn),
-        get_ns_zone_records(fqdn),
-        get_mx_zone_records(fqdn),
-        get_a_zone_records(fqdn),
-        get_txt_zone_records(fqdn),
-        get_dmarc_record(fqdn, info_map.dmarc_subdomain_label),
-        get_dkim_records(
-          fqdn,
-          info_map.dkim_subdomain_label,
-          info_map.known_dkim_selector_list
-        ),
+        # get_ns_zone_records(fqdn),
+        # get_mx_zone_records(fqdn),
+        # get_a_zone_records(fqdn),
+        # get_txt_zone_records(fqdn),
+        # get_dmarc_record(fqdn, info_map.dmarc_subdomain_label),
+        # get_dkim_records(
+        #   fqdn,
+        #   info_map.dkim_subdomain_label,
+        #   info_map.known_dkim_selector_list
+        # ),
         construct_cname_tree(rec, child_records, [], DomainName.name(host_name), info_map)
       ]
     })
@@ -776,18 +838,18 @@ x_zone_tree =
 ```
 
 ```elixir
-x_zone_tree
+Dns.ZoneTree.get_dkim_records(verified_domain, dkim_subdomain_label, known_dkim_selector_list)
 ```
 
 ```elixir
-test_res =
-  "reply"
-  |> DomainName.join!(verified_domain)
-  |> Dns.Query.get_dkim_records(dkim_subdomain_label, known_dkim_selector_list)
+x_zone_tree
+|> hd()
+|> Map.get(:children)
+|> Enum.reject(fn i -> match?([], i) end)
 
-# [ok: list] = test_res
-
-# list
+# |> Kino.Tree.new()
+# |> Enum.uniq()
+# |> length()
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
