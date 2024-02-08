@@ -255,12 +255,16 @@ We now call out to `System.cmd` to run `subfinder` on our domain. Note that ease
 **PLEASE NOTE** This command is run on the network, querying multiple internet sources, and as such is likely to take some time, typically needing 30 seconds or more. Please be patient and don't interrupt it unnecessarily. For additional informative use, `stderr` has been redirected to `stdout` to show error messages, if any.
 
 ```elixir
-{subfinder_query_result, 0} =
-  System.cmd(
-    "bash",
-    ["-lc", "#{subfinder_binary} -d #{DomainName.name(verified_domain)} -silent -json -active"],
-    stderr_to_stdout: true
-  )
+# {subfinder_query_result, 0} =
+#   System.cmd(
+#     "bash",
+#     ["-lc", "#{subfinder_binary} -d #{DomainName.name(verified_domain)} -silent -json -active"],
+#     stderr_to_stdout: true
+#   )
+
+subfinder_query_result =
+  {"{\"host\":\"api.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"school.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"digitorus\"}\n{\"host\":\"watch.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"hackertarget\"}\n{\"host\":\"email.reply.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"www.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"go.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n",
+   0}
 ```
 
 With query results saved to `subfinder_query_results`, we now need to clean up the results by splitting away newline characters (`\n`), filtering out empty strings, and parsing the JSON results.
@@ -268,17 +272,56 @@ With query results saved to `subfinder_query_results`, we now need to clean up t
 <!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
-enumerated_subdomains =
-  subfinder_query_result
-  |> String.split("\n")
-  |> Enum.filter(fn rec -> rec != "" end)
-  |> Enum.map(fn rec -> Jason.decode!(rec) end)
-  |> Enum.map(fn m ->
-    m
-    |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
-    |> Map.merge(%{tool: "subfinder"})
-  end)
-  |> Enum.filter(fn %{host: host} -> host != DomainName.name(verified_domain) end)
+# enumerated_subdomains =
+#   subfinder_query_result
+#   |> String.split("\n")
+#   |> Enum.filter(fn rec -> rec != "" end)
+#   |> Enum.map(fn rec -> Jason.decode!(rec) end)
+#   |> Enum.map(fn m ->
+#     m
+#     |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+#     |> Map.merge(%{tool: "subfinder"})
+#   end)
+#   |> Enum.filter(fn %{host: host} -> host != DomainName.name(verified_domain) end)
+
+enumerated_subdomains = [
+  %{
+    input: "magicpillsmovie.com",
+    host: "api.magicpillsmovie.com",
+    source: "leakix",
+    tool: "subfinder"
+  },
+  %{
+    input: "magicpillsmovie.com",
+    host: "school.magicpillsmovie.com",
+    source: "leakix",
+    tool: "subfinder"
+  },
+  %{
+    input: "magicpillsmovie.com",
+    host: "watch.magicpillsmovie.com",
+    source: "hackertarget",
+    tool: "subfinder"
+  },
+  %{
+    input: "magicpillsmovie.com",
+    host: "email.reply.magicpillsmovie.com",
+    source: "leakix",
+    tool: "subfinder"
+  },
+  %{
+    input: "magicpillsmovie.com",
+    host: "www.magicpillsmovie.com",
+    source: "leakix",
+    tool: "subfinder"
+  },
+  %{
+    input: "magicpillsmovie.com",
+    host: "go.magicpillsmovie.com",
+    source: "leakix",
+    tool: "subfinder"
+  }
+]
 ```
 
 ```elixir
@@ -364,15 +407,19 @@ end
 ## Get DKIM, DMARC and SPF records
 
 ```elixir
+# {dss_domain_scan, 0} =
+#   System.cmd(
+#     "bash",
+#     [
+#       "-lc",
+#       "#{dss_binary} scan #{DomainName.name(verified_domain)} --advise --checkTls --format json"
+#     ],
+#     stderr_to_stdout: true
+#   )
+
 {dss_domain_scan, 0} =
-  System.cmd(
-    "bash",
-    [
-      "-lc",
-      "#{dss_binary} scan #{DomainName.name(verified_domain)} --advise --checkTls --format json"
-    ],
-    stderr_to_stdout: true
-  )
+  {"{\"scanResult\":{\"domain\":\"magicpillsmovie.com\",\"elapsed\":1422,\"dkim\":\"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QuexI9cwivkCoREvb6obK6BjbNnY4j/oqkEHZQSwyojtVL1EMjcuDk5vobxnIq+jsbhJjkm3CSA9KHDcberkxxXliewzdxF77QAbUvdU5eNxexEcXdGMsrjnCevlg4k4Kjcrq0Htw+R9jFMM52lW4eJ3pnCsG1Cf9JOK73T9iN1UIOin6E0I2y/1KHsWwXv2fm0Sb7A6PRUoYSCdKITPQV2U6Dz2kusvzB94mA5bVdzCbwhzZ6DpUzmy1PlNWbXBodyZIwoFKoUJ1GpWoUTVhZ97c3aHZ4O1LQwX571o/KZgagurzX9vkmegT6GsOL3BLI46kktHgt3iA3C5oKdKwIDAQABv=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QuexI9cwivkCoREvb6obK6BjbNnY4j/oqkEHZQSwyojtVL1EMjcuDk5vobxnIq+jsbhJjkm3CSA9KHDcberkxxXliewzdxF77QAbUvdU5eNxexEcXdGMsrjnCevlg4k4Kjcrq0Htw+R9jFMM52lW4eJ3pnCsG1Cf9JOK73T9iN1UIOin6E0I2y/1KHsWwXv2fm0Sb7A6PRUoYSCdKITPQV2U6Dz2kusvzB94mA5bVdzCbwhzZ6DpUzmy1PlNWbXBodyZIwoFKoUJ1GpWoUTVhZ97c3aHZ4O1LQwX571o/KZgagurzX9vkmegT6GsOL3BLI46kktHgt3iA3C5oKdKwIDAQAB\",\"dmarc\":\"v=DMARC1;p=reject TTL: 1 hour\",\"mx\":[\"mx.runbox.com.\"],\"ns\":[\"dns1.p04.nsone.net.\",\"dns2.p04.nsone.net.\",\"dns3.p04.nsone.net.\",\"dns4.p04.nsone.net.\"],\"spf\":\"v=spf1 include:spf.runbox.com include:spf.mailjet.com +mx ~all\"},\"advice\":{\"bimi\":[\"We couldn't detect any active BIMI record for your domain. Please visit https://dmarcguide.globalcyberalliance.org to fix this.\"],\"dkim\":[\"DKIM is setup for this email server. However, if you have other 3rd party systems, please send a test email to confirm DKIM is setup properly.\"],\"dmarc\":[\"Invalid DMARC policy specified, the record must be p=none/p=quarantine/p=reject.\",\"Consider specifying a 'rua' tag for aggregate reporting.\",\"Consider specifying an 'fo' tag to define the condition for generating failure reports. Default is '0' (report if both SPF and DKIM fail).\",\"Consider specifying a 'ruf' tag for forensic reporting.\",\"Subdomain policy isn't specified, they'll default to the main policy instead.\"],\"domain\":[\"Your domain is using TLS 1.3, no further action needed!\"],\"mx\":[\"You have a single mail server setup, but it's recommended that you have at least two setup in case the first one fails.\",\"mx.runbox.com: Failed to reach domain before timeout\"],\"spf\":[\"SPF seems to be setup correctly! No further action needed.\"]}}\n",
+   0}
 ```
 
 ```elixir
@@ -649,7 +696,7 @@ defmodule Dns.ZoneTree do
                 info_map.dkim_subdomain_label,
                 info_map.known_dkim_selector_list
               ),
-              construct_cname_tree(rec, child_records, [], DomainName.name(host_name), info_map)
+              [construct_cname_tree(rec, child_records, [], DomainName.name(host_name), info_map)]
             ]
             |> Enum.reject(fn i -> i == [] end)
         end
@@ -850,14 +897,75 @@ x_zone_tree =
 ```
 
 ```elixir
-x_zone_tree
-|> hd()
-|> Map.get(:children)
+defmodule Q do
+  def resolve_chain(
+        parent_domain,
+        child_domain,
+        _subsequent_domain,
+        [record | []],
+        [next_child | _] = tail
+      ) do
+    IO.inspect(child_domain, label: "This node")
+    IO.inspect(record.data, label: "Record")
+    IO.inspect(next_child.domain, label: "Next node")
 
-# |> Enum.reject(fn i -> match?([], i) end)
-# |> Kino.Tree.new()
-# |> Enum.uniq()
-# |> length()
+    cond do
+      next_child != [] and DomainName.equal?(child_domain, DomainName.new!(next_child.domain)) ->
+        Enum.map([record | tail], fn rec -> rec end)
+
+      true ->
+        record
+        |> Map.merge(%{
+          children:
+            cond do
+              record.type in [:a, :aaaa, :soa, :txt] ->
+                []
+
+              is_list(record.data) and next_child != [] ->
+                [
+                  resolve_chain(
+                    DomainName.new!(record.data),
+                    DomainName.new!(next_child.domain),
+                    "",
+                    tail,
+                    []
+                  )
+                ]
+
+              true ->
+                []
+            end
+        })
+    end
+  end
+
+  def resolve_chain(
+        parent_domain,
+        parent_domain,
+        _subsequent_domain,
+        [head | tail],
+        child_records
+      ),
+      do: resolve_chain(parent_domain, parent_domain, "", [head], tail)
+end
+```
+
+```elixir
+test_tree_segment =
+  [node1 | [node2 | [node3 | [node4 | [node5 | _tail]]]]] = x_zone_tree
+
+# test_tree_segment 
+# |> Enum.map(fn i -> i.children |> length() end)
+
+node4
+
+fqdn = node4.fqdn
+
+node4.children
+|> Enum.map(fn [head | _tail] = ol ->
+  ol
+  #   Q.resolve_chain(fqdn, DomainName.new!(head.domain), "", ol, [])
+end)
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
