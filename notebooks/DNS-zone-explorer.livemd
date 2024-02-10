@@ -903,9 +903,9 @@ defmodule Q do
         child_domain,
         _subsequent_domain,
         [record | []],
-        [] = tail
+        []
       ) do
-    IO.inspect(child_domain, label: "=> No children to traverse. Finished")
+    IO.inspect(child_domain, label: "=> 1. No children to traverse. Finished")
     record
   end
 
@@ -916,13 +916,13 @@ defmodule Q do
         [record | []],
         [next_child | _] = tail
       ) do
-    IO.inspect(child_domain, label: "=> Constructing node children")
+    IO.inspect(child_domain, label: "=> 2. Constructing node children")
     IO.inspect(subsequent_domain, label: "Subsequent domain")
-    IO.inspect(record.data, label: "Record")
-    IO.inspect(next_child.domain, label: "Next node")
+    IO.inspect(record, label: "Record")
+    IO.inspect(next_child, label: "Next node")
 
     cond do
-      DomainName.equal?(child_domain, DomainName.new!(next_child.domain)) ->
+      DomainName.equal?(child_domain, DomainName.new!(next_child[:domain])) ->
         IO.inspect("=-> Child and next record equate. Swithcing to listing mode")
         Enum.map([record | tail], fn rec -> rec end)
 
@@ -941,9 +941,9 @@ defmodule Q do
 
                 [
                   resolve_chain(
-                    DomainName.new!(record.data),
-                    DomainName.new!(next_child.domain),
+                    child_domain,
                     subsequent_domain,
+                    DomainName.new!(next_child.domain),
                     tail,
                     []
                   )
@@ -958,14 +958,31 @@ defmodule Q do
   end
 
   def resolve_chain(
+        _parent_domain,
+        child_domain,
+        child_domain,
+        [head | tail] = record,
+        child_records
+      ) do
+    IO.inspect(child_domain, label: "=> 3. Child and subsequent domains match")
+    IO.inspect(head, label: "3.5 Child head")
+    IO.inspect(tail, label: "3.6 Child tail")
+    IO.inspect(child_records, label: "3.6 Child records")
+
+    Enum.map([record | child_records], fn rec -> rec end)
+    |> List.flatten()
+  end
+
+  def resolve_chain(
         parent_domain,
         parent_domain,
         subsequent_domain,
         [head | tail],
         child_records
       ) do
-    IO.inspect(parent_domain, label: "=> 1. Domains match, resolving for tail as child record")
-    IO.inspect(subsequent_domain, label: "1.5 Subsequent domain")
+    IO.inspect(parent_domain, label: "=> 4. Parent & child domains match")
+    IO.inspect(subsequent_domain, label: "4.5 Subsequent domain")
+    IO.inspect(tail, label: "4.6 Tail")
     # IO.inspect(parent_domain, label: "Parent domain")
     # IO.inspect(head, label: "Head")
     # IO.inspect(tail, label: "Function 2")
@@ -975,50 +992,60 @@ end
 ```
 
 ```elixir
-test_tree_segment =
-  [node1 | [node2 | [node3 | [node4 | [node5 | _tail]]]]] = x_zone_tree
+defmodule Z do
+  def traverse_tree(tree) do
+    tree
+    |> Enum.map(fn node -> traverse_children(node) end)
+  end
 
-# test_tree_segment 
-# |> Enum.map(fn i -> i.children |> length() end)
+  def traverse_children(node) do
+    node
+    |> Map.merge(%{
+      children:
+        Enum.map(node.children, fn child ->
+          case child do
+            [next_record | [subsequent_record | _tail]] ->
+              IO.inspect(next_record, label: "--> At least 2 sub children. Next record")
+              IO.inspect(subsequent_record, label: "--> Subsequent record")
+              # IO.inspect(node.children, label: "Children")
+              # IO.inspect(next_record, label: "Next record")
+              # IO.inspect(subsequent_record, label: "Subsequent record")
 
-fqdn = node2.fqdn
-node = node5
+              Q.resolve_chain(
+                node.fqdn,
+                DomainName.new!(next_record.domain),
+                DomainName.new!(subsequent_record.domain),
+                child,
+                []
+              )
 
-# [child1 | [child2 | [child3 | [child4 | [child5 | tail]]]]] =
-# [child1 | tail] = node2.children
+            [[]] ->
+              []
 
-case node.children do
-  # [child1 | [child2 | tail]] -> "At least 2 children"
-  [[next_record | [subsequent_record | tail]] | _] -> "At least 2 sub-children"
-  [[next_record | tail] | _] -> "At least 1 sub-child"
-  [] -> []
+            [next_record | _tail] ->
+              IO.inspect(next_record, label: "--> At least 1 sub child. Next record")
+
+            [] ->
+              []
+          end
+        end)
+    })
+  end
 end
 
-# child1
-
-# [head | tail] = child1
-# tail
-
-# case child1 do
-# [head | [next_child | tail]] -> "A"
-# [head | tail] -> "B"
-# end
-
-# Q.resolve_chain(fqdn, DomainName.new!(head.domain), tail[:domain], child1, [])
-
-# |> Enum.map(fn [head | _tail] = ol ->
-# [child1 | [child2 | [child3 | [child4 | [child5 | tail]]]]] = ol
-# Q.resolve_chain(fqdn, DomainName.new!(head.domain), "", ol, [])
-# end)
+Z.traverse_tree([List.last(x_zone_tree)])
 ```
 
 ```elixir
-# , %{a: 2}]
-list = [%{a: 1}]
+# [%{a: 1}] #, %{a: 2}]
+list = [[]]
 
-[head | [next | tail]] = list
+[head | tail] = list
 
-next
+xx = DomainName.new!("example.cOm")
+yy = DomainName.new!("example.Com")
+DomainName.equal?(xx, yy)
+Kernel.=~(xx, yy)
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
