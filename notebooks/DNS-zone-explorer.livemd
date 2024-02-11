@@ -898,25 +898,19 @@ x_zone_tree =
 
 ```elixir
 defmodule Q do
-  def resolve_chain(
-        parent_domain,
-        child_domain,
-        _subsequent_domain,
-        [record | []],
-        []
-      ) do
+  def resolve_chain(_parent_domain, child_domain, _subsequent_domain, [record | []], []) do
     IO.inspect(child_domain, label: "=> 1. No children to traverse. Finished")
     record
   end
 
   def resolve_chain(
-        parent_domain,
+        _parent_domain,
         child_domain,
         subsequent_domain,
         [record | []],
-        [next_child | _] = tail
+        [next_child | tail] = subsequent_children
       ) do
-    IO.inspect(child_domain, label: "=> 2. Constructing node children")
+    IO.inspect(child_domain, label: "=> 3. Constructing node children")
     IO.inspect(subsequent_domain, label: "Subsequent domain")
     IO.inspect(record, label: "Record")
     IO.inspect(next_child, label: "Next node")
@@ -924,7 +918,7 @@ defmodule Q do
     cond do
       DomainName.equal?(child_domain, DomainName.new!(next_child[:domain])) ->
         IO.inspect("=-> Child and next record equate. Swithcing to listing mode")
-        Enum.map([record | tail], fn rec -> rec end)
+        Enum.map([record | subsequent_children], fn rec -> rec end)
 
       true ->
         record
@@ -937,15 +931,26 @@ defmodule Q do
 
               is_list(record.data) and next_child != [] ->
                 IO.inspect(record.data, label: "==> Descending one level deeper")
-                IO.inspect(tail, label: "Next child")
+                IO.inspect(child_domain, label: "Child domain")
+                IO.inspect(subsequent_domain, label: "Subsequent domain")
+                IO.inspect(subsequent_children, label: "Next child")
 
                 [
                   resolve_chain(
                     child_domain,
                     subsequent_domain,
-                    DomainName.new!(next_child.domain),
-                    tail,
-                    []
+                    cond do
+                      is_map(List.first(tail)) and Map.get(List.first(tail), :domain, nil) ->
+                        tail
+                        |> List.first()
+                        |> Map.get(:domain, "")
+                        |> DomainName.new!()
+
+                      true ->
+                        ""
+                    end,
+                    [next_child],
+                    tail
                   )
                 ]
 
@@ -957,17 +962,11 @@ defmodule Q do
     end
   end
 
-  def resolve_chain(
-        _parent_domain,
-        child_domain,
-        child_domain,
-        [head | tail] = record,
-        child_records
-      ) do
-    IO.inspect(child_domain, label: "=> 3. Child and subsequent domains match")
-    IO.inspect(head, label: "3.5 Child head")
-    IO.inspect(tail, label: "3.6 Child tail")
-    IO.inspect(child_records, label: "3.6 Child records")
+  def resolve_chain(_parent_domain, child_domain, child_domain, record, child_records) do
+    IO.inspect(child_domain, label: "=> 4. Child and subsequent domains match")
+    IO.inspect(List.first(record), label: "4.5 Child head")
+    IO.inspect(List.last(record), label: "4.6 Child tail")
+    IO.inspect(child_records, label: "4.6 Child records")
 
     Enum.map([record | child_records], fn rec -> rec end)
     |> List.flatten()
@@ -978,11 +977,11 @@ defmodule Q do
         parent_domain,
         subsequent_domain,
         [head | tail],
-        child_records
+        _child_records
       ) do
-    IO.inspect(parent_domain, label: "=> 4. Parent & child domains match")
-    IO.inspect(subsequent_domain, label: "4.5 Subsequent domain")
-    IO.inspect(tail, label: "4.6 Tail")
+    IO.inspect(parent_domain, label: "=> 5. Parent & child domains match")
+    IO.inspect(subsequent_domain, label: "5.5 Subsequent domain")
+    IO.inspect(tail, label: "5.6 Tail")
     # IO.inspect(parent_domain, label: "Parent domain")
     # IO.inspect(head, label: "Head")
     # IO.inspect(tail, label: "Function 2")
@@ -994,8 +993,7 @@ end
 ```elixir
 defmodule Z do
   def traverse_tree(tree) do
-    tree
-    |> Enum.map(fn node -> traverse_children(node) end)
+    Enum.map(tree, fn node -> traverse_children(node) end)
   end
 
   def traverse_children(node) do
@@ -1033,19 +1031,17 @@ defmodule Z do
   end
 end
 
-Z.traverse_tree([List.last(x_zone_tree)])
+Z.traverse_tree(x_zone_tree)
+# {node, _} = List.pop_at(x_zone_tree,3)
+# Z.traverse_tree([node])
 ```
 
 ```elixir
-# [%{a: 1}] #, %{a: 2}]
-list = [[]]
+list = [[%{a: 1}], %{a: 2}]
 
 [head | tail] = list
 
-xx = DomainName.new!("example.cOm")
-yy = DomainName.new!("example.Com")
-DomainName.equal?(xx, yy)
-Kernel.=~(xx, yy)
+List.pop_at(list, 0)
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
