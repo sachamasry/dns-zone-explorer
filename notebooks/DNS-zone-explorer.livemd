@@ -32,7 +32,7 @@ The following will read and attempt to construct a valid domain name and parrot 
 ```
 
 ```elixir
-defmodule DomainNameQuerying do
+defmodule DomainName.Querying do
   def domain_name_query(domain_name) do
     domain_name
     |> DomainName.name()
@@ -41,45 +41,11 @@ defmodule DomainNameQuerying do
 
   def get_critical_domain_info(domain_name) do
     case domain_name_query(domain_name) do
-      {:ok,
-       %Whois.Record{
-         registrar: registrar,
-         nameservers: nameservers,
-         created_at: created_at,
-         updated_at: updated_at,
-         expires_at: expires_at
-       }} ->
-        %{
-          registrar: registrar,
-          nameservers: nameservers,
-          created_at: created_at,
-          updated_at: updated_at,
-          expires_at: expires_at
-        }
-
-      {_, _} ->
-        {:error}
+      {:ok, whois_record} -> whois_record
+      {_, _} -> {:error}
     end
   end
 end
-```
-
-```elixir
-# DomainNameQuerying.get_critical_domain_info(verified_domain)
-
-domain_name_information =
-  %{
-    nameservers: [
-      "dns1.p04.nsone.net",
-      "dns2.p04.nsone.net",
-      "dns3.p04.nsone.net",
-      "dns4.p04.nsone.net"
-    ],
-    registrar: "GoDaddy.com, LLC",
-    created_at: ~N[2015-09-24 23:12:58],
-    updated_at: ~N[2023-09-25 10:45:43],
-    expires_at: ~N[2024-09-25 04:12:58]
-  }
 ```
 
 ## Defining special variables
@@ -473,6 +439,7 @@ The domain name is not a standard DNS record (from our point of view), so we wil
 ```elixir
 defmodule DomainName.Information do
   defstruct name: "",
+            display_name: "",
             registrar: "",
             nameservers: [],
             created_at: nil,
@@ -481,6 +448,33 @@ defmodule DomainName.Information do
             query_tool: "",
             children: []
 end
+```
+
+```elixir
+%Whois.Record{
+  domain: domain,
+  nameservers: nameservers,
+  registrar: registrar,
+  created_at: created_at,
+  updated_at: updated_at,
+  expires_at: expires_at
+} =
+  DomainName.Querying.get_critical_domain_info(verified_domain)
+
+%DomainName.Information{
+  name: DomainName.new!(domain),
+  display_name: DomainName.name(DomainName.new!(domain)),
+  registrar: registrar,
+  created_at: created_at,
+  updated_at: updated_at,
+  expires_at: expires_at,
+  query_tool: "whois: Elixir WHOIS client and parser",
+  children: []
+}
+```
+
+```elixir
+
 ```
 
 To make reading and traversal of our zone easier, a `DnsRecord` structure will store all the relevant information for each record.
@@ -505,6 +499,29 @@ end
 
 ```elixir
 defmodule Dns.ZoneTree do
+  def define_root_of_tree(parent_domain) do
+    %Whois.Record{
+      domain: domain,
+      nameservers: nameservers,
+      registrar: registrar,
+      created_at: created_at,
+      updated_at: updated_at,
+      expires_at: expires_at
+    } =
+      DomainName.Querying.get_critical_domain_info(parent_domain)
+
+    %DomainName.Information{
+      name: DomainName.new!(domain),
+      display_name: DomainName.name(DomainName.new!(domain)),
+      registrar: registrar,
+      created_at: created_at,
+      updated_at: updated_at,
+      expires_at: expires_at,
+      query_tool: "whois: Elixir WHOIS client and parser",
+      children: []
+    }
+  end
+
   # To deprecate
   def construct_zone_tree(
         parent_domain,
@@ -918,6 +935,23 @@ defmodule Dns.ZoneTree do
     }
   end
 end
+```
+
+```elixir
+# root_record = Dns.ZoneTree.define_root_of_tree(verified_domain)
+root_record =
+  %DomainName.Information{
+    # DomainName<magicpillsmovie.com>,
+    name: DomainName.new!("magicpillsmovie.com"),
+    display_name: "magicpillsmovie.com",
+    registrar: "GoDaddy.com, LLC",
+    nameservers: [],
+    created_at: ~N[2015-09-24 23:12:58],
+    updated_at: ~N[2023-09-25 10:45:43],
+    expires_at: ~N[2024-09-25 04:12:58],
+    query_tool: "whois: Elixir WHOIS client and parser",
+    children: []
+  }
 ```
 
 ```elixir
