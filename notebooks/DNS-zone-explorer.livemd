@@ -450,33 +450,6 @@ defmodule DomainName.Information do
 end
 ```
 
-```elixir
-%Whois.Record{
-  domain: domain,
-  nameservers: nameservers,
-  registrar: registrar,
-  created_at: created_at,
-  updated_at: updated_at,
-  expires_at: expires_at
-} =
-  DomainName.Querying.get_critical_domain_info(verified_domain)
-
-%DomainName.Information{
-  name: DomainName.new!(domain),
-  display_name: DomainName.name(DomainName.new!(domain)),
-  registrar: registrar,
-  created_at: created_at,
-  updated_at: updated_at,
-  expires_at: expires_at,
-  query_tool: "whois: Elixir WHOIS client and parser",
-  children: []
-}
-```
-
-```elixir
-
-```
-
 To make reading and traversal of our zone easier, a `DnsRecord` structure will store all the relevant information for each record.
 
 ```elixir
@@ -560,25 +533,29 @@ defmodule Dns.ZoneTree do
         dkim_subdomain_label,
         known_dkim_selector_list
       ) do
-    (get_soa_zone_record(parent_domain) ++
-       get_ns_zone_records(parent_domain) ++
-       get_a_zone_records(parent_domain) ++
-       get_cname_zone_records(
-         parent_domain,
-         subdomain_list,
-         dmarc_subdomain_label,
-         dkim_subdomain_label,
-         known_dkim_selector_list
-       ) ++
-       get_mx_zone_records(parent_domain) ++
-       get_txt_zone_records(parent_domain) ++
-       get_dmarc_record(parent_domain, dmarc_subdomain_label) ++
-       get_dkim_records(
-         parent_domain,
-         dkim_subdomain_label,
-         known_dkim_selector_list
-       ))
-    |> Enum.sort_by(fn rec -> {rec.weight, rec.type, rec.name, rec.data} end)
+    [
+      get_soa_zone_record(parent_domain),
+      get_ns_zone_records(parent_domain),
+      get_a_zone_records(parent_domain),
+      get_aaaa_zone_records(parent_domain),
+      get_cname_zone_records(
+        parent_domain,
+        subdomain_list,
+        dmarc_subdomain_label,
+        dkim_subdomain_label,
+        known_dkim_selector_list
+      ),
+      get_mx_zone_records(parent_domain),
+      get_txt_zone_records(parent_domain),
+      get_dmarc_record(parent_domain, dmarc_subdomain_label),
+      get_dkim_records(
+        parent_domain,
+        dkim_subdomain_label,
+        known_dkim_selector_list
+      )
+    ]
+
+    # |> Enum.sort_by(fn rec -> {rec.weight, rec.type, rec.name, rec.data} end)
   end
 
   def get_soa_zone_record(parent_domain) do
@@ -648,6 +625,12 @@ defmodule Dns.ZoneTree do
   def get_a_zone_records(parent_domain) do
     parent_domain
     |> Dns.Query.get_a_records()
+    |> Dns.Core.handle_record_payload()
+  end
+
+  def get_aaaa_zone_records(parent_domain) do
+    parent_domain
+    |> Dns.Query.get_aaaa_records()
     |> Dns.Core.handle_record_payload()
   end
 
@@ -725,26 +708,14 @@ defmodule Dns.ZoneTree do
         |> Dns.Query.resolves_to_already_seen?([info_map.parent_domain])
         |> case do
           true ->
-            []
+            [Dns.Query.get_cname_record(fqdn)]
 
           false ->
             [
-              # Dns.ZoneTree.construct_dns_zone_tree(
-              #   host_name,
-              #   [],
-              #   info_map.dmarc_subdomain_label,
-              #   info_map.dkim_subdomain_label,
-              #   info_map.known_dkim_selector_list
-              # )
-
-              get_soa_zone_record(fqdn),
-              get_ns_zone_records(fqdn),
-              get_mx_zone_records(fqdn),
-              get_a_zone_records(fqdn),
-              get_txt_zone_records(fqdn),
-              get_dmarc_record(fqdn, info_map.dmarc_subdomain_label),
-              get_dkim_records(
+              Dns.ZoneTree.construct_dns_zone_tree(
                 fqdn,
+                [],
+                info_map.dmarc_subdomain_label,
                 info_map.dkim_subdomain_label,
                 info_map.known_dkim_selector_list
               ),
@@ -755,15 +726,8 @@ defmodule Dns.ZoneTree do
     })
   end
 
-  def construct_cname_tree(rec, [head | tail], child_records, acc, info_map) do
-    construct_cname_tree(rec, [head], tail, acc, info_map)
-    # host_name_at_level = DomainName.join!([head, acc])
-
-    # Map.merge(rec, %{
-    # host_name: host_name_at_level,
-    # children: [construct_cname_tree(rec, tail, host_name_at_level, info_map)]
-    # })
-  end
+  def construct_cname_tree(rec, [head | tail], child_records, acc, info_map),
+    do: construct_cname_tree(rec, [head], tail, acc, info_map)
 
   # Deprecated
   def resolve_for_cname_or_a(host) do
