@@ -206,10 +206,12 @@ defmodule Dns.Query do
     dkim_subdomain = construct_subdomain_host(fqdn, dkim_subdomain_label)
 
     Enum.map(selector_list, fn sel ->
-      get_record_info(
-        construct_subdomain_host(dkim_subdomain, sel),
-        :txt
-      )
+      construct_subdomain_host(dkim_subdomain, sel)
+      |> get_record_info(:txt)
+      |> case do
+        {:ok, payload} -> payload
+        {:error, reason} -> {:error, reason}
+      end
     end)
     # |> filter_for_matching_type(:txt)
     |> Enum.filter(fn
@@ -310,6 +312,8 @@ enumerated_subdomains = [
 ]
 ```
 
+## Core functionality
+
 ```elixir
 defmodule Dns.Core do
   def get_host_name_without_domain(parent_domain, host) do
@@ -338,27 +342,39 @@ defmodule Dns.Core do
   def handle_record_payload(payload) do
     case payload do
       {:ok, []} ->
+        IO.inspect("", label: "1 - {:ok, []}")
         []
 
       {:ok, payload} ->
+        IO.inspect(payload, label: "2 - {:ok, payload}")
         payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
 
       {:error, _} ->
+        IO.inspect("", label: "3 - {:error, _}")
         []
 
       [ok: []] ->
+        IO.inspect("", label: "4 - [:ok, []]")
         []
 
       [ok: payload] ->
+        IO.inspect(payload, label: "5 - [:ok, payload]")
         payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
 
       [error: _] ->
+        IO.inspect("", label: "6 - [:error, _]")
         []
 
-      record_list when is_list(record_list) ->
-        record_list |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
+      [head | tail] = record_list when is_list(record_list) and is_list(head) ->
+        IO.inspect(record_list, label: "7 - [[record_list]]")
+        Enum.map(record_list, fn item -> handle_record_payload(item) end)
+
+      [head | tail] = record_list when is_list(record_list) and is_map(head) ->
+        IO.inspect(record_list, label: "8 - [%{record_list}]")
+        payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
 
       [] ->
+        IO.inspect("", label: "8 - []")
         []
     end
   end
@@ -534,24 +550,53 @@ defmodule Dns.ZoneTree do
         known_dkim_selector_list
       ) do
     [
-      get_soa_zone_record(parent_domain),
-      get_ns_zone_records(parent_domain),
-      get_a_zone_records(parent_domain),
-      get_aaaa_zone_records(parent_domain),
-      get_cname_zone_records(
-        parent_domain,
-        subdomain_list,
-        dmarc_subdomain_label,
-        dkim_subdomain_label,
-        known_dkim_selector_list
+      (
+        IO.inspect("Getting SOA records")
+        get_soa_zone_record(parent_domain)
       ),
-      get_mx_zone_records(parent_domain),
-      get_txt_zone_records(parent_domain),
-      get_dmarc_record(parent_domain, dmarc_subdomain_label),
-      get_dkim_records(
-        parent_domain,
-        dkim_subdomain_label,
-        known_dkim_selector_list
+      (
+        IO.inspect("Getting NS records")
+        get_ns_zone_records(parent_domain)
+      ),
+      (
+        IO.inspect("Getting A records")
+        get_a_zone_records(parent_domain)
+      ),
+      (
+        IO.inspect("Getting AAAA records")
+        get_aaaa_zone_records(parent_domain)
+      ),
+      (
+        IO.inspect("Getting CNAME records")
+
+        get_cname_zone_records(
+          parent_domain,
+          subdomain_list,
+          dmarc_subdomain_label,
+          dkim_subdomain_label,
+          known_dkim_selector_list
+        )
+      ),
+      (
+        IO.inspect("Getting MX records")
+        get_mx_zone_records(parent_domain)
+      ),
+      (
+        IO.inspect("Getting TXT records")
+        get_txt_zone_records(parent_domain)
+      ),
+      (
+        IO.inspect("Getting DMARC records")
+        get_dmarc_record(parent_domain, dmarc_subdomain_label)
+      ),
+      (
+        IO.inspect("Getting DKIM records")
+
+        get_dkim_records(
+          parent_domain,
+          dkim_subdomain_label,
+          known_dkim_selector_list
+        )
       )
     ]
 
@@ -711,16 +756,24 @@ defmodule Dns.ZoneTree do
             [Dns.Query.get_cname_record(fqdn)]
 
           false ->
-            [
-              Dns.ZoneTree.construct_dns_zone_tree(
-                fqdn,
-                [],
-                info_map.dmarc_subdomain_label,
-                info_map.dkim_subdomain_label,
-                info_map.known_dkim_selector_list
-              ),
-              [construct_cname_tree(rec, child_records, [], DomainName.name(host_name), info_map)]
-            ]
+            (Dns.ZoneTree.construct_dns_zone_tree(
+               fqdn,
+               [],
+               info_map.dmarc_subdomain_label,
+               info_map.dkim_subdomain_label,
+               info_map.known_dkim_selector_list
+             ) ++
+               [
+                 [
+                   construct_cname_tree(
+                     rec,
+                     child_records,
+                     [],
+                     DomainName.name(host_name),
+                     info_map
+                   )
+                 ]
+               ])
             |> Enum.reject(fn i -> i == [] end)
         end
     })
@@ -920,13 +973,25 @@ root_record =
 
 ```elixir
 x_zone_tree =
-  Dns.ZoneTree.get_cname_zone_records(
-    verified_domain,
-    enumerated_subdomains,
-    dmarc_subdomain_label,
-    dkim_subdomain_label,
-    known_dkim_selector_list
-  )
+  root_record
+  |> Map.merge(%{
+    children: [
+      Dns.ZoneTree.construct_dns_zone_tree(
+        verified_domain,
+        [],
+        dmarc_subdomain_label,
+        dkim_subdomain_label,
+        known_dkim_selector_list
+      ) ++
+        Dns.ZoneTree.get_cname_zone_records(
+          verified_domain,
+          enumerated_subdomains,
+          dmarc_subdomain_label,
+          dkim_subdomain_label,
+          known_dkim_selector_list
+        )
+    ]
+  })
 ```
 
 ```elixir
@@ -1029,6 +1094,10 @@ defmodule Z do
     Enum.map(tree, fn node -> traverse_children(node) end)
   end
 
+  def traverse_children(node) when is_map(node) do
+    node
+  end
+
   def traverse_children(node) do
     node
     |> Map.merge(%{
@@ -1072,9 +1141,10 @@ defmodule Z do
   end
 end
 
-# Z.traverse_tree(x_zone_tree)
-{node, _} = List.pop_at(x_zone_tree, 3)
-Z.traverse_tree([node])
+Z.traverse_tree(x_zone_tree.children)
+# {node, _} = List.pop_at(x_zone_tree, 3)
+# Z.traverse_tree([node])
+# x_zone_tree.children
 ```
 
 ```elixir
