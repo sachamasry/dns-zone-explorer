@@ -453,7 +453,7 @@ parsed_dss_domain_scan =
 The domain name is not a standard DNS record (from our point of view), so we will give it a unique structure, holding the most important information we wish to report about it. The `DomainName.Information` structure tas care of organising this information for later retrieval.
 
 ```elixir
-defmodule DomainName.Information do
+defmodule ZoneRootDomain do
   defstruct name: "",
             display_name: "",
             registrar: "",
@@ -462,7 +462,7 @@ defmodule DomainName.Information do
             updated_at: nil,
             expires_at: nil,
             query_tool: "",
-            children: []
+            zone_tree: []
 end
 ```
 
@@ -473,16 +473,16 @@ defmodule DnsRecord do
   defstruct id: "",
             name: "",
             display_name: "",
-            type: "",
             weight: 0,
-            special_type: "",
+            type: "",
+            specialised_type: "",
             data: "",
             structured_data: %{},
             priority: nil,
             ttl: nil,
-            children: [],
             query_tool: "",
-            answer_source: ""
+            answer_source: "",
+            child_records: []
 end
 ```
 
@@ -499,7 +499,7 @@ defmodule Dns.ZoneTree do
     } =
       DomainName.Querying.get_critical_domain_info(parent_domain)
 
-    %DomainName.Information{
+    %ZoneRootDomain{
       name: DomainName.new!(domain),
       display_name: DomainName.name(DomainName.new!(domain)),
       registrar: registrar,
@@ -507,7 +507,7 @@ defmodule Dns.ZoneTree do
       updated_at: updated_at,
       expires_at: expires_at,
       query_tool: "whois: Elixir WHOIS client and parser",
-      children: []
+      zone_tree: []
     }
   end
 
@@ -748,7 +748,7 @@ defmodule Dns.ZoneTree do
     Map.merge(rec, %{
       host_name: host_name,
       fqdn: fqdn,
-      children:
+      child_records:
         Dns.Query.get_cname_record(fqdn)
         |> Dns.Query.resolves_to_already_seen?([info_map.parent_domain])
         |> case do
@@ -814,7 +814,7 @@ defmodule Dns.ZoneTree do
       weight: 20,
       data: Dns.Core.handle_record_data(record.data),
       ttl: record.ttl,
-      children: children,
+      child_records: children,
       query_tool: record.tool,
       answer_source: record.source
     })
@@ -833,12 +833,12 @@ defmodule Dns.ZoneTree do
       :cname ->
         construct_cname_record(record,
           host_name: Dns.Core.get_host_name_without_domain(parent_domain, record.domain),
-          children: []
+          child_records: []
         )
 
       :txt ->
         record
-        |> Map.merge(%{id: record.domain, special_type: "DKIM"})
+        |> Map.merge(%{id: record.domain, specialised_type: "DKIM"})
         |> construct_txt_record(id_prefix: "")
 
       _ ->
@@ -853,7 +853,7 @@ defmodule Dns.ZoneTree do
       :cname ->
         construct_cname_record(record,
           host_name: Dns.Core.get_host_name_without_domain(parent_domain, record.domain),
-          children: resolve_cname_chain(parent_domain, next_hd, next_tl)
+          child_records: resolve_cname_chain(parent_domain, next_hd, next_tl)
         )
 
       _ ->
@@ -924,7 +924,7 @@ defmodule Dns.ZoneTree do
         ),
       type: record.type,
       weight: 30,
-      special_type: Map.get(record, :special_type, ""),
+      specialised_type: Map.get(record, :special_type, ""),
       data:
         case Map.get(record, :special_type, "") do
           "DKIM" -> Enum.join(record.data)
@@ -939,14 +939,14 @@ defmodule Dns.ZoneTree do
       id: dns_record.id,
       name: Map.get(dns_record, :name, ""),
       display_name: Map.get(dns_record, :display_name, ""),
-      type: dns_record.type,
       weight: dns_record.weight,
+      type: dns_record.type,
+      specialised_type: Map.get(dns_record, :special_type, ""),
       data: Map.get(dns_record, :data),
       structured_data: Map.get(dns_record, :structured_data),
-      special_type: Map.get(dns_record, :special_type, ""),
       priority: Map.get(dns_record, :priority, nil),
       ttl: dns_record.ttl,
-      children: Map.get(dns_record, :children, []),
+      child_records: Map.get(dns_record, :child_records, []),
       query_tool: Map.get(dns_record, :query_tool, ""),
       answer_source: Map.get(dns_record, :answer_source, "")
     }
@@ -955,10 +955,9 @@ end
 ```
 
 ```elixir
-# root_record = Dns.ZoneTree.define_root_of_tree(verified_domain)
-root_record =
-  %DomainName.Information{
-    # DomainName<magicpillsmovie.com>,
+# zone_root_record = Dns.ZoneTree.define_root_of_tree(verified_domain)
+zone_root_record =
+  %ZoneRootDomain{
     name: DomainName.new!("magicpillsmovie.com"),
     display_name: "magicpillsmovie.com",
     registrar: "GoDaddy.com, LLC",
@@ -967,29 +966,29 @@ root_record =
     updated_at: ~N[2023-09-25 10:45:43],
     expires_at: ~N[2024-09-25 04:12:58],
     query_tool: "whois: Elixir WHOIS client and parser",
-    children: []
+    zone_tree: []
   }
 ```
 
 ```elixir
 x_zone_tree =
-  root_record
+  zone_root_record
   |> Map.merge(%{
-    children: [
+    zone_tree: [
       Dns.ZoneTree.construct_dns_zone_tree(
         verified_domain,
         [],
         dmarc_subdomain_label,
         dkim_subdomain_label,
         known_dkim_selector_list
-      ) ++
-        Dns.ZoneTree.get_cname_zone_records(
-          verified_domain,
-          enumerated_subdomains,
-          dmarc_subdomain_label,
-          dkim_subdomain_label,
-          known_dkim_selector_list
-        )
+      ),
+      Dns.ZoneTree.get_cname_zone_records(
+        verified_domain,
+        enumerated_subdomains,
+        dmarc_subdomain_label,
+        dkim_subdomain_label,
+        known_dkim_selector_list
+      )
     ]
   })
 ```
@@ -1021,7 +1020,7 @@ defmodule Q do
       true ->
         record
         |> Map.merge(%{
-          children:
+          child_records:
             cond do
               record.type in [:a, :aaaa, :soa, :txt] ->
                 IO.inspect(record.data, label: "==> Non-traversable records encountered")
@@ -1091,18 +1090,27 @@ end
 ```elixir
 defmodule Z do
   def traverse_tree(tree) do
-    Enum.map(tree, fn node -> traverse_children(node) end)
+    # IO.inspect(List.first(tree), label: "=> Z1. Traversing tree")
+    IO.inspect("=> Z1. Traversing tree")
+
+    Enum.map(tree, fn
+      node when is_map(node) -> traverse_children(node)
+      node when is_list(node) -> traverse_tree(node)
+    end)
   end
+
+  # def traverse_children(node) when is_map(node) do
+  # IO.inspect(node, label: "==> Z2. Traversing map node")
+  # node
+  # end
 
   def traverse_children(node) when is_map(node) do
-    node
-  end
+    IO.inspect(node, label: "==> Z3. Traversing other node")
 
-  def traverse_children(node) do
     node
     |> Map.merge(%{
-      children:
-        Enum.map(node.children, fn child ->
+      child_records:
+        Enum.map(node.child_records, fn child ->
           case child do
             [next_record | [subsequent_record | _tail]] ->
               IO.inspect(next_record, label: "--> At least 2 sub children. Next record")
@@ -1126,7 +1134,7 @@ defmodule Z do
               IO.inspect(next_record, label: "--> At least 1 sub child. Next record")
 
               cond do
-                is_map(next_record) and Map.get(next_record, :children, nil) ->
+                is_map(next_record) and Map.get(next_record, :child_records, nil) ->
                   traverse_children(next_record)
 
                 true ->
@@ -1141,7 +1149,7 @@ defmodule Z do
   end
 end
 
-Z.traverse_tree(x_zone_tree.children)
+Z.traverse_tree(x_zone_tree.zone_tree)
 # {node, _} = List.pop_at(x_zone_tree, 3)
 # Z.traverse_tree([node])
 # x_zone_tree.children
