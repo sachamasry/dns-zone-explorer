@@ -12,9 +12,11 @@ Mix.install([
 ])
 ```
 
+## Overview
+
 ## Domain entry, parsing and querying
 
-To begin, we need user input to know which domain to interrogate, saving the input into the `domain` variable.
+To begin, we need user input to know which domain to interrogate, storing the result into the `domain` variable.
 
 ```elixir
 domain = Kino.Input.text("Enter your domain name")
@@ -325,6 +327,12 @@ defmodule Dns.Core do
     end
   end
 
+  def is_subdomain_of_zone?(domain, root_domain) do
+    domain
+    |> DomainName.new!()
+    |> DomainName.ends_with?(root_domain)
+  end
+
   def get_subdomain_labels(host) do
     DomainName.labels(host) |> Enum.reverse()
   end
@@ -566,17 +574,14 @@ defmodule Dns.ZoneTree do
         IO.inspect("Getting AAAA records")
         get_aaaa_zone_records(parent_domain)
       ),
-      (
-        IO.inspect("Getting CNAME records")
-
-        get_cname_zone_records(
-          parent_domain,
-          subdomain_list,
-          dmarc_subdomain_label,
-          dkim_subdomain_label,
-          known_dkim_selector_list
-        )
-      ),
+      # (IO.inspect("Getting CNAME records")
+      # get_cname_zone_records(
+      #   parent_domain,
+      #   subdomain_list,
+      #   dmarc_subdomain_label,
+      #   dkim_subdomain_label,
+      #   known_dkim_selector_list
+      # )),
       (
         IO.inspect("Getting MX records")
         get_mx_zone_records(parent_domain)
@@ -1104,7 +1109,7 @@ defmodule Z do
   # node
   # end
 
-  def traverse_children(node) when is_map(node) do
+  def traverse_children(node) do
     IO.inspect(node, label: "==> Z3. Traversing other node")
 
     node
@@ -1169,7 +1174,9 @@ Reaching in to each map, we can take out the value for each `host` key, returnin
 subdomain_list =
   enumerated_subdomains
   |> Enum.map(fn %{host: host} -> host end)
-  |> Enum.map(fn host -> DomainName.new!(host) |> Dns.Query.get_soa_records() end)
+  |> Enum.map(fn i -> i |> DomainName.new!() |> Dns.Query.get_a_records() end)
+
+# |> Enum.map(fn host -> DomainName.new!(host) |> Dns.Query.get_soa_records() end)
 ```
 
 What we've now got is a list of subdomains, with fully-qualified domain names (FQDN). This is very wordy, as each subdomain is fully specified, containing the domain name in full. We don't want that much information, stripping the zone parent domain name from each subdomain, leaving only the actual subdomain name itself.
@@ -1177,15 +1184,16 @@ What we've now got is a list of subdomains, with fully-qualified domain names (F
 ```elixir
 subdomains =
   subdomain_list
-  |> Enum.map(fn d ->
-    d
-    |> DomainName.new!()
-    |> DomainName.without_suffix(verified_domain)
-    |> case do
-      {:ok, s} -> DomainName.name(s)
-    end
-  end)
-  |> Enum.filter(fn i -> i != "" end)
+
+# |> Enum.map(fn d ->
+#   d
+#   |> DomainName.new!()
+#   |> DomainName.without_suffix(verified_domain)
+#   |> case do
+#     {:ok, s} -> DomainName.name(s)
+#   end
+# end)
+# |> Enum.filter(fn i -> i != "" end)
 ```
 
 ```elixir
