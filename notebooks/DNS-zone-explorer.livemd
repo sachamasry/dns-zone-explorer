@@ -327,10 +327,14 @@ defmodule Dns.Core do
     end
   end
 
-  def is_subdomain_of_zone?(domain, root_domain) do
-    domain
+  def is_subdomain_of_zone?(fqdn, zone_root_domain) when is_struct(fqdn, DomainName) do
+    DomainName.ends_with?(fqdn, zone_root_domain)
+  end
+
+  def is_subdomain_of_zone?(fqdn, zone_root_domain) when is_bitstring(fqdn) do
+    fqdn
     |> DomainName.new!()
-    |> DomainName.ends_with?(root_domain)
+    |> DomainName.ends_with?(zone_root_domain)
   end
 
   def get_subdomain_labels(host) do
@@ -340,79 +344,97 @@ defmodule Dns.Core do
   def classify_txt_record_type(record) do
     data_string = Enum.join(record.data)
 
-    spf_re = ~r/^v=spf1.*/
-    dmarc_re = ~r/^v=DMARC1.*/
-    dkim_re = ~r/.*p=.*/
-
     cond do
-      String.match?(data_string, spf_re) ->
-        :spf
+      is_record_spf?(data_string) -> :spf
+      is_record_dmarc?(data_string, DomainName.new!(record.domain)) -> :dmarc
+      is_record_dkim?(data_string, DomainName.new!(record.domain)) -> :dkim
+      true -> nil
+    end
+  end
 
-      String.match?(data_string, dmarc_re) ->
-        record.domain
-        |> DomainName.new!()
+  defp is_record_spf?(data_string) when is_bitstring(data_string) do
+    spf_re = ~r/^v=spf1.*/
+    String.match?(data_string, spf_re)
+  end
+
+  defp is_record_dmarc?(data_string, fqdn)
+       when is_bitstring(data_string) and is_struct(fqdn, DomainName) do
+    dmarc_re = ~r/^v=DMARC1.*/
+
+    case String.match?(data_string, dmarc_re) do
+      true ->
+        fqdn
         |> DomainName.labels()
-        |> IO.inspect(label: "Domain labels")
         |> Enum.find(fn l -> l == "_dmarc" end)
         |> case do
-          nil -> ""
+          nil -> nil
           _ -> :dmarc
         end
 
-      String.match?(data_string, dkim_re) ->
-        record.domain
-        |> DomainName.new!()
-        |> DomainName.labels()
-        |> IO.inspect(label: "Domain labels")
-        |> Enum.find(fn l -> l == "_domainkey" end)
-        |> case do
-          nil -> ""
-          _ -> :dkim
-        end
-
-      true ->
+      false ->
         nil
     end
   end
 
-  def handle_query_result_chain(record_chain, options \\ []) when is_list(record_chain) do
-    record_chain
-    |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
-    |> Enum.map(fn rec -> construct_dns_record_dispatcher(rec, options) end)
+  defp is_record_dkim?(data_string, fqdn)
+       when is_bitstring(data_string) and is_struct(fqdn, DomainName) do
+    dkim_re = ~r/.*p=.*/
+
+    case String.match?(data_string, dkim_re) do
+      true ->
+        fqdn
+        |> DomainName.labels()
+        |> Enum.find(fn l -> l == "_domainkey" end)
+        |> case do
+          nil -> nil
+          _ -> :dkim
+        end
+
+      false ->
+        nil
+    end
   end
 
-  def construct_dns_record_dispatcher(record, options \\ []) when is_map(record) do
+  def handle_query_result_chain(record_chain, zone_root_domain, options \\ [])
+      when is_list(record_chain) do
+    record_chain
+    |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
+    |> Enum.map(fn rec -> construct_dns_record_dispatcher(rec, zone_root_domain, options) end)
+  end
+
+  def construct_dns_record_dispatcher(record, zone_root_domain, options \\ [])
+      when is_map(record) do
     IO.inspect(record, label: "Dispatcher record")
 
     record
     |> case do
       %{type: :soa} = record ->
         IO.inspect("SOA type")
-        construct_soa_record(record)
+        construct_soa_record(record, zone_root_domain)
 
       %{type: :ns} = record ->
         IO.inspect("NS type")
-        construct_ns_record(record)
+        construct_ns_record(record, zone_root_domain)
 
       %{type: :mx} = record ->
         IO.inspect("MX type")
-        construct_mx_record(record)
+        construct_mx_record(record, zone_root_domain)
 
       %{type: :a} = record ->
         IO.inspect("A type")
-        construct_a_record(record)
+        construct_a_record(record, zone_root_domain)
 
       %{type: :aaaa} = record ->
         IO.inspect("AAAA type")
-        construct_a_record(record)
+        construct_a_record(record, zone_root_domain)
 
       %{type: :cname} = record ->
         IO.inspect("CNAME type")
-        construct_cname_record(record)
+        construct_cname_record(record, zone_root_domain)
 
       %{type: :txt} = record ->
         IO.inspect("TXT type")
-        construct_txt_record(record, options)
+        construct_txt_record(record, zone_root_domain, options)
 
       _ ->
         IO.inspect("Other type")
@@ -427,15 +449,17 @@ defmodule Dns.Core do
   id: 2, type: :soa, ttl: 855, domain: ~c"domain.org",
   class: :in, query_tool: "...", answer_source: "..."}
   """
-  defp construct_soa_record(record) do
+  defp construct_soa_record(record, zone_root_domain) do
+    fqdn = DomainName.new!(record.domain)
     data = Dns.Core.handle_soa_record_data(record.data)
 
     DnsRecord.construct_dns_record(%{
       id: "SOA-#{record.domain}",
       type: record.type,
       weight: 0,
-      name: "#{record.domain}",
+      name: fqdn,
       display_name: "SOA #{record.domain} zone",
+      inside_zone: is_subdomain_of_zone?(fqdn, zone_root_domain),
       ttl: record.ttl,
       data:
         "Master name: #{data.mname}, Responsible contact: #{data.rname}, Serial number: #{data.serial}, Refresh time: #{data.refresh}, Retry time: #{data.retry}, Expire time: #{data.expire}, Minimum TTL: #{data.minimum}",
@@ -452,12 +476,16 @@ defmodule Dns.Core do
   domain: ~c"domain.com", class: :in, query_tool: "...",
   answer_source: "..."}
   """
-  def construct_ns_record(record) do
+  def construct_ns_record(record, zone_root_domain) do
+    fqdn = DomainName.new!(record.domain)
+
     DnsRecord.construct_dns_record(%{
       id: "ns-#{record.id}-#{record.domain}",
       type: record.type,
       weight: 5,
+      name: fqdn,
       display_name: "NS #{record.id}",
+      inside_zone: is_subdomain_of_zone?(fqdn, zone_root_domain),
       ttl: record.ttl,
       data: "#{record.data}",
       query_tool: record.query_tool,
@@ -472,14 +500,17 @@ defmodule Dns.Core do
   domain: ~c"domain.com", class: :in,
   query_tool: "...", answer_source: "..."}
   """
-  def construct_mx_record(record) do
+  def construct_mx_record(record, zone_root_domain) do
+    fqdn = DomainName.new!(record.domain)
     parsed_data = Dns.Core.handle_mx_record_data(record.data)
 
     DnsRecord.construct_dns_record(%{
       id: "mx-#{record.id}",
       type: record.type,
       weight: 10,
-      display_name: "MX #{record.id}  #{record.domain}",
+      name: fqdn,
+      display_name: "MX #{record.id} #{record.domain}",
+      inside_zone: is_subdomain_of_zone?(fqdn, zone_root_domain),
       ttl: record.ttl,
       priority: parsed_data.priority,
       data: parsed_data.data,
@@ -499,7 +530,9 @@ defmodule Dns.Core do
 
   data: {104, 20, 246, 77}
   """
-  def construct_a_record(record) do
+  def construct_a_record(record, zone_root_domain) do
+    fqdn = DomainName.new!(record.domain)
+
     data =
       case record.type do
         :a -> handle_a_record_data(record.data)
@@ -511,8 +544,9 @@ defmodule Dns.Core do
       id: "#{record.domain}",
       type: record.type,
       weight: 15,
-      name: "#{record.domain}",
+      name: fqdn,
       display_name: "#{record.domain}",
+      inside_zone: is_subdomain_of_zone?(fqdn, zone_root_domain),
       ttl: record.ttl,
       data: data,
       query_tool: record.query_tool,
@@ -528,16 +562,17 @@ defmodule Dns.Core do
   query_tool: "...", answer_source: "..."
   }
   """
-  defp construct_cname_record(record, options \\ []) do
-    host_name = Keyword.get(options, :host_name, "")
+  defp construct_cname_record(record, zone_root_domain, options \\ []) do
+    fqdn = DomainName.new!(record.domain)
     children = Keyword.get(options, :children, [])
 
     DnsRecord.construct_dns_record(%{
       id: "#{record.domain}",
       type: record.type,
       weight: 20,
-      name: "#{record.domain}",
+      name: fqdn,
       display_name: "#{record.domain}",
+      inside_zone: is_subdomain_of_zone?(fqdn, zone_root_domain),
       ttl: record.ttl,
       data: handle_record_data(record.data),
       child_records: children,
@@ -554,7 +589,8 @@ defmodule Dns.Core do
     domain: ~c"domain.org", class: :in,
     query_tool: "...", answer_source: "..."}
   """
-  defp construct_txt_record(record, options \\ []) do
+  defp construct_txt_record(record, zone_root_domain, options \\ []) do
+    fqdn = DomainName.new!(record.domain)
     id_prefix = Keyword.get(options, :id_prefix, "")
 
     specialised_type =
@@ -579,8 +615,9 @@ defmodule Dns.Core do
       type: record.type,
       specialised_type: specialised_type,
       weight: 30,
-      name: "#{record.domain}",
+      name: fqdn,
       display_name: display_name_construction,
+      inside_zone: is_subdomain_of_zone?(fqdn, zone_root_domain),
       ttl: record.ttl,
       data: Enum.join(record.data, " || "),
       query_tool: record.query_tool,
@@ -588,7 +625,7 @@ defmodule Dns.Core do
     })
   end
 
-  def handle_record_payload(payload) do
+  def handle_record_payload(payload, zone_root_domain) do
     case payload do
       {:ok, []} ->
         IO.inspect("", label: "1 - {:ok, []}")
@@ -597,7 +634,7 @@ defmodule Dns.Core do
       {:ok, payload} ->
         IO.inspect(payload, label: "2 - {:ok, payload}")
         # payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
-        handle_query_result_chain(payload)
+        handle_query_result_chain(payload, zone_root_domain)
 
       {:error, _} ->
         IO.inspect("", label: "3 - {:error, _}")
@@ -610,7 +647,7 @@ defmodule Dns.Core do
       [ok: payload] ->
         IO.inspect(payload, label: "5 - [:ok, payload]")
         # payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
-        handle_query_result_chain(payload)
+        handle_query_result_chain(payload, zone_root_domain)
 
       [error: _] ->
         IO.inspect("", label: "6 - [:error, _]")
@@ -618,12 +655,12 @@ defmodule Dns.Core do
 
       [head | tail] = record_list when is_list(record_list) and is_list(head) ->
         IO.inspect(record_list, label: "7 - [[record_list]]")
-        Enum.map(record_list, fn item -> handle_record_payload(item) end)
+        Enum.map(record_list, fn item -> handle_record_payload(item, zone_root_domain) end)
 
       [head | tail] = record_list when is_list(record_list) and is_map(head) ->
         IO.inspect(record_list, label: "8 - [%{record_list}]")
         # payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
-        handle_query_result_chain(payload)
+        handle_query_result_chain(payload, zone_root_domain)
 
       [] ->
         IO.inspect("", label: "8 - []")
@@ -730,8 +767,9 @@ To make reading and traversal of our zone easier, a `DnsRecord` structure will s
 ```elixir
 defmodule DnsRecord do
   defstruct id: "",
-            name: "",
+            name: nil,
             display_name: "",
+            inside_zone: false,
             weight: 0,
             type: "",
             specialised_type: "",
@@ -748,6 +786,7 @@ defmodule DnsRecord do
       id: dns_record.id,
       name: Map.get(dns_record, :name, ""),
       display_name: Map.get(dns_record, :display_name, ""),
+      inside_zone: dns_record.inside_zone,
       weight: Map.get(dns_record, :weight, 0),
       type: dns_record.type,
       specialised_type: Map.get(dns_record, :specialised_type, ""),
@@ -789,7 +828,8 @@ defmodule Dns.ZoneTree do
   end
 
   def construct_dns_zone_tree(
-        parent_domain,
+        fqdn,
+        zone_root_domain,
         dmarc_subdomain_label,
         dkim_subdomain_label,
         known_dkim_selector_list
@@ -797,37 +837,38 @@ defmodule Dns.ZoneTree do
     [
       (
         IO.inspect("Getting SOA records")
-        get_soa_zone_record(parent_domain)
+        get_soa_zone_record(fqdn, zone_root_domain)
       ),
       (
         IO.inspect("Getting NS records")
-        get_ns_zone_records(parent_domain)
+        get_ns_zone_records(fqdn, zone_root_domain)
       ),
       (
         IO.inspect("Getting A records")
-        get_a_zone_records(parent_domain)
+        get_a_zone_records(fqdn, zone_root_domain)
       ),
       (
         IO.inspect("Getting AAAA records")
-        get_aaaa_zone_records(parent_domain)
+        get_aaaa_zone_records(fqdn, zone_root_domain)
       ),
       (
         IO.inspect("Getting MX records")
-        get_mx_zone_records(parent_domain)
+        get_mx_zone_records(fqdn, zone_root_domain)
       ),
       (
         IO.inspect("Getting TXT records")
-        get_txt_zone_records(parent_domain)
+        get_txt_zone_records(fqdn, zone_root_domain)
       ),
       (
         IO.inspect("Getting DMARC records")
-        get_dmarc_record(parent_domain, dmarc_subdomain_label)
+        get_dmarc_record(fqdn, zone_root_domain, dmarc_subdomain_label)
       ),
       (
         IO.inspect("Getting DKIM records")
 
         get_dkim_records(
-          parent_domain,
+          fqdn,
+          zone_root_domain,
           dkim_subdomain_label,
           known_dkim_selector_list
         )
@@ -837,38 +878,38 @@ defmodule Dns.ZoneTree do
     # |> Enum.sort_by(fn rec -> {rec.weight, rec.type, rec.name, rec.data} end)
   end
 
-  def get_soa_zone_record(parent_domain) do
-    parent_domain
+  def get_soa_zone_record(fqdn, zone_root_domain) do
+    fqdn
     |> Dns.Query.get_soa_records()
-    |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload(zone_root_domain)
   end
 
-  def get_ns_zone_records(parent_domain) do
-    parent_domain
+  def get_ns_zone_records(fqdn, zone_root_domain) do
+    fqdn
     |> Dns.Query.get_ns_records()
-    |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload(zone_root_domain)
   end
 
-  def get_mx_zone_records(parent_domain) do
-    parent_domain
+  def get_mx_zone_records(fqdn, zone_root_domain) do
+    fqdn
     |> Dns.Query.get_mx_records()
-    |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload(zone_root_domain)
   end
 
-  def get_a_zone_records(parent_domain) do
-    parent_domain
+  def get_a_zone_records(fqdn, zone_root_domain) do
+    fqdn
     |> Dns.Query.get_a_records()
-    |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload(zone_root_domain)
   end
 
-  def get_aaaa_zone_records(parent_domain) do
-    parent_domain
+  def get_aaaa_zone_records(fqdn, zone_root_domain) do
+    fqdn
     |> Dns.Query.get_aaaa_records()
-    |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload(zone_root_domain)
   end
 
   def get_cname_zone_records(
-        parent_domain,
+        zone_root_domain,
         subdomain_list,
         dmarc_subdomain_label,
         dkim_subdomain_label,
@@ -880,13 +921,13 @@ defmodule Dns.ZoneTree do
       Map.merge(rec, %{
         domain: host,
         host_labels:
-          Dns.Core.get_host_name_without_domain(parent_domain, host)
+          Dns.Core.get_host_name_without_domain(zone_root_domain, host)
           |> Dns.Core.get_subdomain_labels()
       })
     end)
     |> Enum.map(fn rec ->
       construct_cname_tree(rec, rec.host_labels, [], "", %{
-        parent_domain: parent_domain,
+        zone_root_domain: zone_root_domain,
         dmarc_subdomain_label: dmarc_subdomain_label,
         dkim_subdomain_label: dkim_subdomain_label,
         known_dkim_selector_list: known_dkim_selector_list
@@ -913,7 +954,7 @@ defmodule Dns.ZoneTree do
 
   def construct_cname_tree(rec, [head | []], child_records, acc, info_map) do
     host_name = DomainName.join!([head, acc])
-    fqdn = DomainName.join!(DomainName.name(host_name), info_map.parent_domain)
+    fqdn = DomainName.join!(DomainName.name(host_name), info_map.zone_root_domain)
 
     IO.inspect(acc, label: "Acc")
     IO.inspect(host_name, label: "Host")
@@ -924,7 +965,7 @@ defmodule Dns.ZoneTree do
       fqdn: fqdn,
       child_records:
         Dns.Query.get_cname_record(fqdn)
-        |> Dns.Query.resolves_to_already_seen?([info_map.parent_domain])
+        |> Dns.Query.resolves_to_already_seen?([info_map.zone_root_domain])
         |> case do
           true ->
             [Dns.Query.get_cname_record(fqdn)]
@@ -932,6 +973,7 @@ defmodule Dns.ZoneTree do
           false ->
             (Dns.ZoneTree.construct_dns_zone_tree(
                fqdn,
+               info_map.zone_root_domain,
                info_map.dmarc_subdomain_label,
                info_map.dkim_subdomain_label,
                info_map.known_dkim_selector_list
@@ -1019,10 +1061,10 @@ defmodule Dns.ZoneTree do
     # end
   end
 
-  def get_txt_zone_records(parent_domain) do
-    parent_domain
+  def get_txt_zone_records(fqdn, zone_root_domain) do
+    fqdn
     |> Dns.Query.get_txt_records()
-    |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload(zone_root_domain)
 
     # |> Enum.with_index(fn rec, index ->
     #   Map.merge(rec, %{id: index + 1, special_type: Dns.Core.classify_txt_record_type(rec)})
@@ -1030,10 +1072,10 @@ defmodule Dns.ZoneTree do
     # |> Enum.map(fn rec -> construct_txt_record(rec) end)
   end
 
-  def get_dmarc_record(parent_domain, subdomain_label) do
-    parent_domain
+  def get_dmarc_record(fqdn, zone_root_domain, subdomain_label) do
+    fqdn
     |> Dns.Query.get_dmarc_record(subdomain_label)
-    |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload(zone_root_domain)
 
     # |> Enum.with_index(fn rec, index ->
     #   Map.merge(rec, %{id: index + 1, special_type: "DMARC"})
@@ -1043,10 +1085,10 @@ defmodule Dns.ZoneTree do
     # end)
   end
 
-  def get_dkim_records(parent_domain, subdomain_label, selector_list) do
-    parent_domain
+  def get_dkim_records(fqdn, zone_root_domain, subdomain_label, selector_list) do
+    fqdn
     |> Dns.Query.get_dkim_records(subdomain_label, selector_list)
-    |> Dns.Core.handle_record_payload()
+    |> Dns.Core.handle_record_payload(zone_root_domain)
 
     # |> Enum.map(fn
     #   [head | []] ->
@@ -1075,7 +1117,7 @@ end
 # verified_domain
 "reply.magicpillsmovie.com"
 |> DomainName.new!()
-|> Dns.ZoneTree.get_txt_zone_records()
+|> Dns.ZoneTree.get_txt_zone_records(verified_domain)
 ```
 
 ```elixir
@@ -1100,6 +1142,7 @@ x_zone_tree =
   |> Map.merge(%{
     zone_tree: [
       Dns.ZoneTree.construct_dns_zone_tree(
+        verified_domain,
         verified_domain,
         dmarc_subdomain_label,
         dkim_subdomain_label,
