@@ -339,11 +339,39 @@ defmodule Dns.Core do
 
   def classify_txt_record_type(record) do
     data_string = Enum.join(record.data)
+
     spf_re = ~r/^v=spf1.*/
+    dmarc_re = ~r/^v=DMARC1.*/
+    dkim_re = ~r/.*p=.*/
 
     cond do
-      String.match?(data_string, spf_re) -> "SPF"
-      true -> ""
+      String.match?(data_string, spf_re) ->
+        :spf
+
+      String.match?(data_string, dmarc_re) ->
+        record.domain
+        |> DomainName.new!()
+        |> DomainName.labels()
+        |> IO.inspect(label: "Domain labels")
+        |> Enum.find(fn l -> l == "_dmarc" end)
+        |> case do
+          nil -> ""
+          _ -> :dmarc
+        end
+
+      String.match?(data_string, dkim_re) ->
+        record.domain
+        |> DomainName.new!()
+        |> DomainName.labels()
+        |> IO.inspect(label: "Domain labels")
+        |> Enum.find(fn l -> l == "_domainkey" end)
+        |> case do
+          nil -> ""
+          _ -> :dkim
+        end
+
+      true ->
+        nil
     end
   end
 
@@ -542,7 +570,7 @@ defmodule Dns.Core do
       |> Enum.join("-")
 
     display_name_construction =
-      [specialised_type, "[TXT]", record.domain]
+      [String.upcase(Kernel.to_string(specialised_type)), "[TXT]", record.domain]
       |> Enum.reject(fn i -> i == "" end)
       |> Enum.join(" ")
 
@@ -1045,7 +1073,7 @@ end
 
 ```elixir
 # verified_domain
-"email.reply.magicpillsmovie.com"
+"reply.magicpillsmovie.com"
 |> DomainName.new!()
 |> Dns.ZoneTree.get_txt_zone_records()
 ```
@@ -1545,6 +1573,10 @@ Kino.Mermaid.new(dns_zone_diagram)
 ```
 
 ## Audit summary and advice
+
+```elixir
+
+```
 
 ```elixir
 Kino.Markdown.new("""
