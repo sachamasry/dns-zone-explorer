@@ -110,7 +110,10 @@ dss_binary = System.get_env("LB_DSS_BIN")
 
 ```elixir
 defmodule Dns.Query do
-  def get_record_info(dns_name, type) when is_atom(type) do
+  def get_record_info(dns_name, type, options \\ []) when is_atom(type) do
+    answer_source =
+      Keyword.get(options, :answer_source, "#{String.upcase(Kernel.to_string(type))} query")
+
     dns_name
     |> DomainName.name()
     |> String.to_charlist()
@@ -125,7 +128,7 @@ defmodule Dns.Query do
          |> Enum.map(fn i ->
            Map.merge(i, %{
              query_tool: "inet_res",
-             answer_source: "#{String.upcase(Kernel.to_string(type))} query"
+             answer_source: answer_source
            })
          end)}
 
@@ -133,6 +136,9 @@ defmodule Dns.Query do
         {:error, reason}
     end
   end
+
+  def construct_subdomain_host(fqdn, subdomain_label),
+    do: DomainName.join!(subdomain_label, fqdn)
 
   def filter_for_matching_type(response, type) do
     case response do
@@ -196,12 +202,10 @@ defmodule Dns.Query do
 
   def get_dmarc_record(fqdn, dmarc_subdomain_label) do
     construct_subdomain_host(fqdn, dmarc_subdomain_label)
-    |> get_record_info(:txt)
-    |> filter_for_matching_type(:txt)
-  end
+    |> get_record_info(:txt, answer_source: "DMARC query")
 
-  def construct_subdomain_host(fqdn, subdomain_label),
-    do: DomainName.join!(subdomain_label, fqdn)
+    # |> filter_for_matching_type(:txt)
+  end
 
   def get_dkim_records(fqdn, dkim_subdomain_label, selector_list)
       when is_list(selector_list) do
@@ -209,7 +213,7 @@ defmodule Dns.Query do
 
     Enum.map(selector_list, fn sel ->
       construct_subdomain_host(dkim_subdomain, sel)
-      |> get_record_info(:txt)
+      |> get_record_info(:txt, answer_source: "DKIM query")
       |> case do
         {:ok, payload} -> payload
         {:error, reason} -> {:error, reason}
@@ -461,7 +465,7 @@ defmodule Dns.Core do
         case Dns.Core.classify_txt_record_type(head_link) do
           :dkim -> Map.merge(head_link, %{specialised_type: :dkim})
           :dmarc -> Map.merge(head_link, %{specialised_type: :dmarc})
-          :spf -> Map.merge(head_link, %{specialised_type: :dmarc})
+          :spf -> Map.merge(head_link, %{specialised_type: :spf})
           _ -> head_link
         end
 
@@ -1172,126 +1176,6 @@ defmodule Dns.ZoneTree do
     # |> Enum.filter(fn i -> not is_nil(i) end)
   end
 end
-```
-
-```elixir
-txt_chain =
-  [
-    [
-      %DnsRecord{
-        id: "selector1._domainkey.magicpillsmovie.com",
-        name: DomainName.new!("selector1._domainkey.magicpillsmovie.com"),
-        display_name: "selector1._domainkey.magicpillsmovie.com",
-        inside_zone: true,
-        weight: 20,
-        type: :cname,
-        specialised_type: nil,
-        data: "selector1-magicpillsmovie-com.domainkey.runbox.com",
-        structured_data: %{},
-        priority: nil,
-        ttl: 1578,
-        query_tool: "inet_res",
-        answer_source: "TXT query",
-        child_records: []
-      },
-      %DnsRecord{
-        id: "txt--2",
-        name: DomainName.new!("selector1-magicpillsmovie-com.domainkey.runbox.com"),
-        display_name: "[TXT] selector1-magicpillsmovie-com.domainkey.runbox.com",
-        inside_zone: false,
-        weight: 30,
-        type: :txt,
-        specialised_type: nil,
-        data:
-          "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QuexI9cwivkCoREvb6obK6BjbNnY4j/oqkEHZQSwyojtVL1EMjcuDk5vobxnIq+jsbhJjkm3CSA9KHDcberkxxXliewzdxF77QAbUvdU5eNxexEcXdGMsrjnCevlg4k4Kjcrq0Htw+R9jFMM52lW4eJ3pnCsG1Cf9JOK73T9iN1UIOin6E0I2y/1KHsWwXv2 || fm0Sb7A6PRUoYSCdKITPQV2U6Dz2kusvzB94mA5bVdzCbwhzZ6DpUzmy1PlNWbXBodyZIwoFKoUJ1GpWoUTVhZ97c3aHZ4O1LQwX571o/KZgagurzX9vkmegT6GsOL3BLI46kktHgt3iA3C5oKdKwIDAQAB",
-        structured_data: %{},
-        priority: nil,
-        ttl: 165,
-        query_tool: "inet_res",
-        answer_source: "TXT query",
-        child_records: []
-      }
-    ],
-    [
-      %DnsRecord{
-        id: "selector2._domainkey.magicpillsmovie.com",
-        name: DomainName.new!("selector2._domainkey.magicpillsmovie.com"),
-        display_name: "selector2._domainkey.magicpillsmovie.com",
-        inside_zone: true,
-        weight: 20,
-        type: :cname,
-        specialised_type: nil,
-        data: "selector2-magicpillsmovie-com.domainkey.runbox.com",
-        structured_data: %{},
-        priority: nil,
-        ttl: 1578,
-        query_tool: "inet_res",
-        answer_source: "TXT query",
-        child_records: []
-      },
-      %DnsRecord{
-        id: "txt--2",
-        name: DomainName.new!("selector2-magicpillsmovie-com.domainkey.runbox.com"),
-        display_name: "[TXT] selector2-magicpillsmovie-com.domainkey.runbox.com",
-        inside_zone: false,
-        weight: 30,
-        type: :txt,
-        specialised_type: nil,
-        data:
-          "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2Ix7IxTUL0TQWGlN8SnLJPjSV8WkkKuxjY/ut09RLJZlORVFNqExlvPHs2CIP5Zoh7NFEsnqlfUyxJhSQcuSgeXwECr3KpyAQaNXf+YMznat0RJBodfa5kAY6PScLvCBbWIc0Gp07fV77OsJbSrLznKk3WLLhelFMTtyM5g8yf0C6MZpDOn78AZPcpLj+XFcV || JWIAWRuM2vlWtW/axCYymgSZNYa48irQCk2/FcN4o2sv9KbXGgOm7iwzH/43yqP0t5qLQfo1VbLi1lGeODxqD+/YjgyOp08ZXMfPaaMrScFS9cg9Fu0BMSFr/kkdGG5VkTgi2f07OlXB/6VANbGswIDAQAB",
-        structured_data: %{},
-        priority: nil,
-        ttl: 166,
-        query_tool: "inet_res",
-        answer_source: "TXT query",
-        child_records: []
-      }
-    ],
-    [
-      %DnsRecord{
-        id: "txt-dkim-1",
-        name: DomainName.new!("mailjet._domainkey.magicpillsmovie.com"),
-        display_name: "DKIM [TXT] mailjet._domainkey.magicpillsmovie.com",
-        inside_zone: true,
-        weight: 30,
-        type: :txt,
-        specialised_type: :dkim,
-        data:
-          "k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDy/33iy2k0URNfxwQn7O8/pu26E/tbktLS7eFF5gYu3C0FJlG3fnA2OJ324edWBBPXCM49ikFLFYuUg9Zv40kRvbyVXGqqrSCAD82AVYPVt1f8J6AZi8aqZ8t65Aa9rcwavk182HldIL+GtkCjdWZS40AkhUUPiKtAlnHptMB3dwIDAQAB",
-        structured_data: %{},
-        priority: nil,
-        ttl: 1579,
-        query_tool: "inet_res",
-        answer_source: "TXT query",
-        child_records: []
-      }
-    ]
-  ]
-  |> Enum.map(fn chain ->
-    case chain do
-      [head_link | []] ->
-        case Dns.Core.classify_txt_record_type(head_link) do
-          :dkim -> Map.merge(head_link, %{specialised_type: :dkim})
-          :dmarc -> Map.merge(head_link, %{specialised_type: :dmarc})
-          :spf -> Map.merge(head_link, %{specialised_type: :dmarc})
-          _ -> head_link
-        end
-
-      [head_link | tail_links] ->
-        cond do
-          Dns.Core.is_record_domain_dkim?(head_link.name) &&
-              Dns.Core.is_record_payload_dkim?(List.last(tail_links).data) ->
-            Enum.map(chain, fn link -> Map.merge(link, %{specialised_type: :dkim}) end)
-
-          Dns.Core.is_record_domain_dmarc?(head_link.name) &&
-              Dns.Core.is_record_payload_dmarc?(List.last(tail_links).data) ->
-            Enum.map(chain, fn link -> Map.merge(link, %{specialised_type: :dmarc}) end)
-
-          true ->
-            chain
-        end
-    end
-  end)
 ```
 
 ```elixir
