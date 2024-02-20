@@ -342,13 +342,17 @@ defmodule Dns.Core do
     DomainName.labels(subdomain) |> Enum.reverse()
   end
 
-  def classify_txt_record_type(record) do
-    data_string = Enum.join(record.data)
+  def classify_txt_record_type(record, options \\ []) do
+    data_string =
+      cond do
+        is_list(record.data) -> Enum.join(record.data, " || ")
+        true -> record.data
+      end
 
     cond do
       is_record_spf?(data_string) -> :spf
-      is_record_dmarc?(data_string, DomainName.new!(record.domain)) -> :dmarc
-      is_record_dkim?(data_string, DomainName.new!(record.domain)) -> :dkim
+      is_record_payload_dmarc?(data_string) -> :dmarc
+      is_record_payload_dkim?(data_string) -> :dkim
       true -> nil
     end
   end
@@ -358,41 +362,47 @@ defmodule Dns.Core do
     String.match?(data_string, spf_re)
   end
 
-  defp is_record_dmarc?(data_string, fqdn)
+  defp is_record_dmarc?(data_string, fqdn, options \\ [])
        when is_bitstring(data_string) and is_struct(fqdn, DomainName) do
-    dmarc_re = ~r/^v=DMARC1.*/
-
-    case String.match?(data_string, dmarc_re) do
-      true ->
-        fqdn
-        |> DomainName.labels()
-        |> Enum.find(fn l -> l == "_dmarc" end)
-        |> case do
-          nil -> nil
-          _ -> :dmarc
-        end
-
-      false ->
-        nil
+    case is_record_payload_dmarc?(data_string) do
+      true -> is_record_domain_dmarc?(fqdn)
+      false -> nil
     end
   end
 
-  defp is_record_dkim?(data_string, fqdn)
+  def is_record_payload_dmarc?(data_string) when is_bitstring(data_string) do
+    String.match?(data_string, ~r/^v=DMARC1.*/)
+  end
+
+  def is_record_domain_dmarc?(fqdn) when is_struct(fqdn, DomainName) do
+    fqdn
+    |> DomainName.labels()
+    |> Enum.find(fn l -> l == "_dmarc" end)
+    |> case do
+      nil -> nil
+      _ -> :dmarc
+    end
+  end
+
+  defp is_record_dkim?(data_string, fqdn, options \\ [])
        when is_bitstring(data_string) and is_struct(fqdn, DomainName) do
-    dkim_re = ~r/.*p=.*/
+    case is_record_payload_dkim?(data_string) do
+      true -> is_record_domain_dkim?(fqdn)
+      false -> nil
+    end
+  end
 
-    case String.match?(data_string, dkim_re) do
-      true ->
-        fqdn
-        |> DomainName.labels()
-        |> Enum.find(fn l -> l == "_domainkey" end)
-        |> case do
-          nil -> nil
-          _ -> :dkim
-        end
+  def is_record_payload_dkim?(data_string) when is_bitstring(data_string) do
+    String.match?(data_string, ~r/.*p=.*/)
+  end
 
-      false ->
-        nil
+  def is_record_domain_dkim?(fqdn) when is_struct(fqdn, DomainName) do
+    fqdn
+    |> DomainName.labels()
+    |> Enum.find(fn l -> l == "_domainkey" end)
+    |> case do
+      nil -> nil
+      _ -> :dkim
     end
   end
 
@@ -401,6 +411,9 @@ defmodule Dns.Core do
     record_chain
     |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
     |> Enum.map(fn rec -> construct_dns_record_dispatcher(rec, options) end)
+    |> classify_record_chain_type()
+
+    # |> convert_record_chain_to_tree(options)
   end
 
   def construct_dns_record_dispatcher(record, options \\ [])
@@ -439,6 +452,64 @@ defmodule Dns.Core do
 
       _ ->
         IO.inspect("Other type")
+    end
+  end
+
+  def classify_record_chain_type(record_chain) when is_list(record_chain) do
+    case record_chain do
+      [head_link | []] ->
+        case Dns.Core.classify_txt_record_type(head_link) do
+          :dkim -> Map.merge(head_link, %{specialised_type: :dkim})
+          :dmarc -> Map.merge(head_link, %{specialised_type: :dmarc})
+          :spf -> Map.merge(head_link, %{specialised_type: :dmarc})
+          _ -> head_link
+        end
+
+      [head_link | tail_links] ->
+        cond do
+          Dns.Core.is_record_domain_dkim?(head_link.name) &&
+              Dns.Core.is_record_payload_dkim?(List.last(tail_links).data) ->
+            Enum.map(record_chain, fn link -> Map.merge(link, %{specialised_type: :dkim}) end)
+
+          Dns.Core.is_record_domain_dmarc?(head_link.name) &&
+              Dns.Core.is_record_payload_dmarc?(List.last(tail_links).data) ->
+            Enum.map(record_chain, fn link -> Map.merge(link, %{specialised_type: :dmarc}) end)
+
+          true ->
+            record_chain
+        end
+    end
+  end
+
+  def convert_record_chain_to_tree(record_chain, options \\ []) when is_list(record_chain) do
+    case record_chain do
+      [
+        %DnsRecord{name: name_first} = first_record,
+        %DnsRecord{name: name_second} = second_record | _
+      ] =
+          result_chain ->
+        IO.inspect("At least two maps in list")
+        IO.inspect(first_record, label: "First record")
+        IO.inspect(second_record, label: "Second record")
+
+        Q.resolve_chain(
+          options[:parent_domain],
+          name_first,
+          name_second,
+          result_chain,
+          []
+        )
+
+      [%DnsRecord{name: name} = record | []] ->
+        IO.inspect("Single map in list")
+        IO.inspect(record, label: "One record")
+        record
+
+      [[]] ->
+        []
+
+      [] ->
+        []
     end
   end
 
@@ -598,7 +669,7 @@ defmodule Dns.Core do
       Keyword.get(
         options,
         :id_prefix,
-        Map.get(record, :specialised_type, classify_txt_record_type(record))
+        Map.get(record, :specialised_type, classify_txt_record_type(record, options))
       )
 
     id_construction =
@@ -635,7 +706,7 @@ defmodule Dns.Core do
       {:ok, payload} ->
         IO.inspect(payload, label: "2 - {:ok, payload}")
         # payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
-        handle_query_result_chain(payload, options[:zone_root_domain])
+        handle_query_result_chain(payload, options)
 
       {:error, _} ->
         IO.inspect("", label: "3 - {:error, _}")
@@ -772,8 +843,8 @@ defmodule DnsRecord do
             display_name: "",
             inside_zone: false,
             weight: 0,
-            type: "",
-            specialised_type: "",
+            type: nil,
+            specialised_type: nil,
             data: "",
             structured_data: %{},
             priority: nil,
@@ -785,12 +856,12 @@ defmodule DnsRecord do
   def construct_dns_record(dns_record) when is_map(dns_record) do
     %DnsRecord{
       id: dns_record.id,
-      name: Map.get(dns_record, :name, ""),
+      name: Map.get(dns_record, :name, nil),
       display_name: Map.get(dns_record, :display_name, ""),
       inside_zone: dns_record.inside_zone,
       weight: Map.get(dns_record, :weight, 0),
       type: dns_record.type,
-      specialised_type: Map.get(dns_record, :specialised_type, ""),
+      specialised_type: Map.get(dns_record, :specialised_type, nil),
       data: Map.get(dns_record, :data),
       structured_data: Map.get(dns_record, :structured_data, %{}),
       priority: Map.get(dns_record, :priority, nil),
@@ -1055,6 +1126,8 @@ defmodule Dns.ZoneTree do
   end
 
   def get_dmarc_record(fqdn, options \\ []) do
+    options = Keyword.put(options, :query_intent, :dmarc)
+
     fqdn
     |> Dns.Query.get_dmarc_record(options[:dmarc_subdomain_label])
     |> Dns.Core.handle_record_payload(options)
@@ -1068,6 +1141,7 @@ defmodule Dns.ZoneTree do
   end
 
   def get_dkim_records(fqdn, options \\ []) do
+    options = Keyword.put(options, :query_intent, :dkim)
     IO.inspect(options, label: "Options")
 
     fqdn
@@ -1101,19 +1175,175 @@ end
 ```
 
 ```elixir
-# verified_domain
-# "email.reply.magicpillsmovie.com"
+txt_chain =
+  [
+    [
+      %DnsRecord{
+        id: "selector1._domainkey.magicpillsmovie.com",
+        name: DomainName.new!("selector1._domainkey.magicpillsmovie.com"),
+        display_name: "selector1._domainkey.magicpillsmovie.com",
+        inside_zone: true,
+        weight: 20,
+        type: :cname,
+        specialised_type: nil,
+        data: "selector1-magicpillsmovie-com.domainkey.runbox.com",
+        structured_data: %{},
+        priority: nil,
+        ttl: 1578,
+        query_tool: "inet_res",
+        answer_source: "TXT query",
+        child_records: []
+      },
+      %DnsRecord{
+        id: "txt--2",
+        name: DomainName.new!("selector1-magicpillsmovie-com.domainkey.runbox.com"),
+        display_name: "[TXT] selector1-magicpillsmovie-com.domainkey.runbox.com",
+        inside_zone: false,
+        weight: 30,
+        type: :txt,
+        specialised_type: nil,
+        data:
+          "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QuexI9cwivkCoREvb6obK6BjbNnY4j/oqkEHZQSwyojtVL1EMjcuDk5vobxnIq+jsbhJjkm3CSA9KHDcberkxxXliewzdxF77QAbUvdU5eNxexEcXdGMsrjnCevlg4k4Kjcrq0Htw+R9jFMM52lW4eJ3pnCsG1Cf9JOK73T9iN1UIOin6E0I2y/1KHsWwXv2 || fm0Sb7A6PRUoYSCdKITPQV2U6Dz2kusvzB94mA5bVdzCbwhzZ6DpUzmy1PlNWbXBodyZIwoFKoUJ1GpWoUTVhZ97c3aHZ4O1LQwX571o/KZgagurzX9vkmegT6GsOL3BLI46kktHgt3iA3C5oKdKwIDAQAB",
+        structured_data: %{},
+        priority: nil,
+        ttl: 165,
+        query_tool: "inet_res",
+        answer_source: "TXT query",
+        child_records: []
+      }
+    ],
+    [
+      %DnsRecord{
+        id: "selector2._domainkey.magicpillsmovie.com",
+        name: DomainName.new!("selector2._domainkey.magicpillsmovie.com"),
+        display_name: "selector2._domainkey.magicpillsmovie.com",
+        inside_zone: true,
+        weight: 20,
+        type: :cname,
+        specialised_type: nil,
+        data: "selector2-magicpillsmovie-com.domainkey.runbox.com",
+        structured_data: %{},
+        priority: nil,
+        ttl: 1578,
+        query_tool: "inet_res",
+        answer_source: "TXT query",
+        child_records: []
+      },
+      %DnsRecord{
+        id: "txt--2",
+        name: DomainName.new!("selector2-magicpillsmovie-com.domainkey.runbox.com"),
+        display_name: "[TXT] selector2-magicpillsmovie-com.domainkey.runbox.com",
+        inside_zone: false,
+        weight: 30,
+        type: :txt,
+        specialised_type: nil,
+        data:
+          "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2Ix7IxTUL0TQWGlN8SnLJPjSV8WkkKuxjY/ut09RLJZlORVFNqExlvPHs2CIP5Zoh7NFEsnqlfUyxJhSQcuSgeXwECr3KpyAQaNXf+YMznat0RJBodfa5kAY6PScLvCBbWIc0Gp07fV77OsJbSrLznKk3WLLhelFMTtyM5g8yf0C6MZpDOn78AZPcpLj+XFcV || JWIAWRuM2vlWtW/axCYymgSZNYa48irQCk2/FcN4o2sv9KbXGgOm7iwzH/43yqP0t5qLQfo1VbLi1lGeODxqD+/YjgyOp08ZXMfPaaMrScFS9cg9Fu0BMSFr/kkdGG5VkTgi2f07OlXB/6VANbGswIDAQAB",
+        structured_data: %{},
+        priority: nil,
+        ttl: 166,
+        query_tool: "inet_res",
+        answer_source: "TXT query",
+        child_records: []
+      }
+    ],
+    [
+      %DnsRecord{
+        id: "txt-dkim-1",
+        name: DomainName.new!("mailjet._domainkey.magicpillsmovie.com"),
+        display_name: "DKIM [TXT] mailjet._domainkey.magicpillsmovie.com",
+        inside_zone: true,
+        weight: 30,
+        type: :txt,
+        specialised_type: :dkim,
+        data:
+          "k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDy/33iy2k0URNfxwQn7O8/pu26E/tbktLS7eFF5gYu3C0FJlG3fnA2OJ324edWBBPXCM49ikFLFYuUg9Zv40kRvbyVXGqqrSCAD82AVYPVt1f8J6AZi8aqZ8t65Aa9rcwavk182HldIL+GtkCjdWZS40AkhUUPiKtAlnHptMB3dwIDAQAB",
+        structured_data: %{},
+        priority: nil,
+        ttl: 1579,
+        query_tool: "inet_res",
+        answer_source: "TXT query",
+        child_records: []
+      }
+    ]
+  ]
+  |> Enum.map(fn chain ->
+    case chain do
+      [head_link | []] ->
+        case Dns.Core.classify_txt_record_type(head_link) do
+          :dkim -> Map.merge(head_link, %{specialised_type: :dkim})
+          :dmarc -> Map.merge(head_link, %{specialised_type: :dmarc})
+          :spf -> Map.merge(head_link, %{specialised_type: :dmarc})
+          _ -> head_link
+        end
+
+      [head_link | tail_links] ->
+        cond do
+          Dns.Core.is_record_domain_dkim?(head_link.name) &&
+              Dns.Core.is_record_payload_dkim?(List.last(tail_links).data) ->
+            Enum.map(chain, fn link -> Map.merge(link, %{specialised_type: :dkim}) end)
+
+          Dns.Core.is_record_domain_dmarc?(head_link.name) &&
+              Dns.Core.is_record_payload_dmarc?(List.last(tail_links).data) ->
+            Enum.map(chain, fn link -> Map.merge(link, %{specialised_type: :dmarc}) end)
+
+          true ->
+            chain
+        end
+    end
+  end)
+```
+
+```elixir
+fqdn =
+  verified_domain
+
+# "api.magicpillsmovie.com"
 # "school.magicpillsmovie.com"
+# "watch.magicpillsmovie.com"
+# "email.reply.magicpillsmovie.com"
+# "www.magicpillsmovie.com"
+# "go.magicpillsmovie.com"
 # |> DomainName.new!()
 
-# enumerated_subdomains
-# |> Dns.ZoneTree.get_cname_zone_records(
-#   zone_root_domain: verified_domain,
-#   parent_domain: verified_domain,
-#   dmarc_subdomain_label: dmarc_subdomain_label,
-#   dkim_subdomain_label: dkim_subdomain_label,
-#   known_dkim_selector_list: known_dkim_selector_list
-# )
+fqdn
+|> Dns.ZoneTree.get_dkim_records(
+  zone_root_domain: verified_domain,
+  parent_domain: fqdn,
+  dmarc_subdomain_label: dmarc_subdomain_label,
+  dkim_subdomain_label: dkim_subdomain_label,
+  known_dkim_selector_list: known_dkim_selector_list
+)
+
+# |> case do
+#   [
+#     %DnsRecord{name: name_first} = first_record,
+#     %DnsRecord{name: name_second} = second_record | _
+#   ] =
+#       result_chain ->
+#     IO.inspect("At least two maps in list")
+#     IO.inspect(first_record, label: "First record")
+#     IO.inspect(second_record, label: "Second record")
+
+#     Q.resolve_chain(
+#       fqdn,
+#       name_first,
+#       name_second,
+#       result_chain,
+#       []
+#     )
+
+#   [%DnsRecord{name: name} = record | []] ->
+#     IO.inspect("Single map in list")
+#     IO.inspect(record, label: "One record")
+#     record
+
+#   [[]] ->
+#     []
+
+#   [] ->
+#     []
+# end
 ```
 
 ```elixir
@@ -1177,7 +1407,7 @@ defmodule Q do
     IO.inspect(next_child, label: "Next node")
 
     cond do
-      DomainName.equal?(child_domain, DomainName.new!(next_child[:domain])) ->
+      DomainName.equal?(child_domain, next_child.name) ->
         IO.inspect("=-> Child and next record equate. Swithcing to listing mode")
         Enum.map([record | subsequent_children], fn rec -> rec end)
 
@@ -1190,22 +1420,23 @@ defmodule Q do
                 IO.inspect(record.data, label: "==> Non-traversable records encountered")
                 []
 
-              is_list(record.data) and next_child != [] ->
+              # is_list(record.data) and next_child != [] ->
+              next_child != [] ->
                 IO.inspect(record.data, label: "==> Descending one level deeper")
                 IO.inspect(child_domain, label: "Child domain")
                 IO.inspect(subsequent_domain, label: "Subsequent domain")
                 IO.inspect(subsequent_children, label: "Next child")
+                IO.inspect(tail, label: "Tail")
 
                 [
                   resolve_chain(
                     child_domain,
                     subsequent_domain,
                     cond do
-                      is_map(List.first(tail)) and Map.get(List.first(tail), :domain, nil) ->
+                      is_map(List.first(tail)) and Map.get(List.first(tail), :name, nil) ->
                         tail
                         |> List.first()
-                        |> Map.get(:domain, "")
-                        |> DomainName.new!()
+                        |> Map.get(:name, "")
 
                       true ->
                         ""
@@ -1253,6 +1484,7 @@ end
 
 ```elixir
 defmodule Z do
+  # Module to deprecate
   def traverse_tree(tree) do
     # IO.inspect(List.first(tree), label: "=> Z1. Traversing tree")
     IO.inspect("=> Z1. Traversing tree")
