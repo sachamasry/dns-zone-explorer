@@ -318,8 +318,9 @@ enumerated_subdomains = [
 
 ```elixir
 defmodule Dns.Core do
-  def get_host_name_without_domain(fqdn, zone_root_domain) do
-    DomainName.new!(fqdn)
+  def get_host_name_without_domain(fqdn, zone_root_domain)
+      when is_struct(fqdn, DomainName) and is_struct(zone_root_domain, DomainName) do
+    fqdn
     |> DomainName.without_suffix(zone_root_domain)
     |> case do
       {:ok, name} -> name
@@ -902,7 +903,6 @@ defmodule Dns.ZoneTree do
   end
 
   def get_cname_zone_records(
-        zone_root_domain,
         subdomain_list,
         options \\ []
       )
@@ -912,7 +912,7 @@ defmodule Dns.ZoneTree do
       Map.merge(rec, %{
         domain: host,
         host_labels:
-          Dns.Core.get_host_name_without_domain(DomainName.new!(host), zone_root_domain)
+          Dns.Core.get_host_name_without_domain(DomainName.new!(host), options[:zone_root_domain])
           |> Dns.Core.get_subdomain_labels()
       })
     end)
@@ -951,7 +951,7 @@ defmodule Dns.ZoneTree do
       fqdn: fqdn,
       child_records:
         Dns.Query.get_cname_record(fqdn)
-        |> Dns.Query.resolves_to_already_seen?(options[:zone_root_domain])
+        |> Dns.Query.resolves_to_already_seen?([options[:zone_root_domain]])
         |> case do
           true ->
             [Dns.Query.get_cname_record(fqdn)]
@@ -1102,16 +1102,18 @@ end
 
 ```elixir
 # verified_domain
-"email.reply.magicpillsmovie.com"
+# "email.reply.magicpillsmovie.com"
 # "school.magicpillsmovie.com"
-|> DomainName.new!()
-|> Dns.ZoneTree.get_cname_zone_records(enumerated_subdomains,
-  zone_root_domain: verified_domain,
-  parent_domain: verified_domain,
-  dmarc_subdomain_label: dmarc_subdomain_label,
-  dkim_subdomain_label: dkim_subdomain_label,
-  known_dkim_selector_list: known_dkim_selector_list
-)
+# |> DomainName.new!()
+
+# enumerated_subdomains
+# |> Dns.ZoneTree.get_cname_zone_records(
+#   zone_root_domain: verified_domain,
+#   parent_domain: verified_domain,
+#   dmarc_subdomain_label: dmarc_subdomain_label,
+#   dkim_subdomain_label: dkim_subdomain_label,
+#   known_dkim_selector_list: known_dkim_selector_list
+# )
 ```
 
 ```elixir
@@ -1137,17 +1139,19 @@ x_zone_tree =
     zone_tree: [
       Dns.ZoneTree.construct_dns_zone_tree(
         verified_domain,
-        verified_domain,
-        dmarc_subdomain_label,
-        dkim_subdomain_label,
-        known_dkim_selector_list
+        zone_root_domain: verified_domain,
+        parent_domain: verified_domain,
+        dmarc_subdomain_label: dmarc_subdomain_label,
+        dkim_subdomain_label: dkim_subdomain_label,
+        known_dkim_selector_list: known_dkim_selector_list
       ),
       Dns.ZoneTree.get_cname_zone_records(
-        verified_domain,
         enumerated_subdomains,
-        dmarc_subdomain_label,
-        dkim_subdomain_label,
-        known_dkim_selector_list
+        zone_root_domain: verified_domain,
+        parent_domain: verified_domain,
+        dmarc_subdomain_label: dmarc_subdomain_label,
+        dkim_subdomain_label: dkim_subdomain_label,
+        known_dkim_selector_list: known_dkim_selector_list
       )
     ]
   })
