@@ -410,14 +410,39 @@ defmodule Dns.Core do
     end
   end
 
+  def classify_record_chain_type(record_chain) when is_list(record_chain) do
+    case record_chain do
+      [head_link | []] ->
+        case Dns.Core.classify_txt_record_type(head_link) do
+          :dkim -> Map.merge(head_link, %{specialised_type: :dkim})
+          :dmarc -> Map.merge(head_link, %{specialised_type: :dmarc})
+          :spf -> Map.merge(head_link, %{specialised_type: :spf})
+          _ -> head_link
+        end
+
+      [head_link | tail_links] ->
+        cond do
+          Dns.Core.is_record_domain_dkim?(head_link.name) &&
+              Dns.Core.is_record_payload_dkim?(List.last(tail_links).data) ->
+            Enum.map(record_chain, fn link -> Map.merge(link, %{specialised_type: :dkim}) end)
+
+          Dns.Core.is_record_domain_dmarc?(head_link.name) &&
+              Dns.Core.is_record_payload_dmarc?(List.last(tail_links).data) ->
+            Enum.map(record_chain, fn link -> Map.merge(link, %{specialised_type: :dmarc}) end)
+
+          true ->
+            record_chain
+        end
+    end
+  end
+
   def handle_query_result_chain(record_chain, options \\ [])
       when is_list(record_chain) do
     record_chain
     |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
     |> Enum.map(fn rec -> construct_dns_record_dispatcher(rec, options) end)
     |> classify_record_chain_type()
-
-    # |> convert_record_chain_to_tree(options)
+    |> convert_record_chain_to_tree()
   end
 
   def construct_dns_record_dispatcher(record, options \\ [])
@@ -459,52 +484,26 @@ defmodule Dns.Core do
     end
   end
 
-  def classify_record_chain_type(record_chain) when is_list(record_chain) do
-    case record_chain do
-      [head_link | []] ->
-        case Dns.Core.classify_txt_record_type(head_link) do
-          :dkim -> Map.merge(head_link, %{specialised_type: :dkim})
-          :dmarc -> Map.merge(head_link, %{specialised_type: :dmarc})
-          :spf -> Map.merge(head_link, %{specialised_type: :spf})
-          _ -> head_link
-        end
-
-      [head_link | tail_links] ->
-        cond do
-          Dns.Core.is_record_domain_dkim?(head_link.name) &&
-              Dns.Core.is_record_payload_dkim?(List.last(tail_links).data) ->
-            Enum.map(record_chain, fn link -> Map.merge(link, %{specialised_type: :dkim}) end)
-
-          Dns.Core.is_record_domain_dmarc?(head_link.name) &&
-              Dns.Core.is_record_payload_dmarc?(List.last(tail_links).data) ->
-            Enum.map(record_chain, fn link -> Map.merge(link, %{specialised_type: :dmarc}) end)
-
-          true ->
-            record_chain
-        end
-    end
+  def convert_record_chain_to_tree(record_chain)
+      when is_struct(record_chain, DnsRecord) do
+    IO.inspect("Single map, no list")
+    IO.inspect(record_chain, label: "One record")
+    record_chain
   end
 
-  def convert_record_chain_to_tree(record_chain, options \\ []) when is_list(record_chain) do
+  def convert_record_chain_to_tree(record_chain) when is_list(record_chain) do
     case record_chain do
       [
-        %DnsRecord{name: name_first} = first_record,
-        %DnsRecord{name: name_second} = second_record | _
-      ] =
-          result_chain ->
+        %DnsRecord{name: _name_first, data: _data_first} = first_record,
+        %DnsRecord{name: _name_second} = second_record | _tail
+      ] ->
         IO.inspect("At least two maps in list")
         IO.inspect(first_record, label: "First record")
         IO.inspect(second_record, label: "Second record")
 
-        Q.resolve_chain(
-          options[:parent_domain],
-          name_first,
-          name_second,
-          result_chain,
-          []
-        )
+        Q.resolve_chain(record_chain, [])
 
-      [%DnsRecord{name: name} = record | []] ->
+      [%DnsRecord{name: _name} = record | []] ->
         IO.inspect("Single map in list")
         IO.inspect(record, label: "One record")
         record
@@ -564,6 +563,7 @@ defmodule Dns.Core do
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: "#{record.data}",
+      structured_data: %{fqdn: DomainName.new!(record.data)},
       query_tool: record.query_tool,
       answer_source: record.answer_source
     })
@@ -588,8 +588,8 @@ defmodule Dns.Core do
       display_name: "MX #{record.id} #{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
-      priority: parsed_data.priority,
-      data: parsed_data.data,
+      data: to_string(parsed_data.data),
+      structured_data: %{priority: parsed_data.priority, fqdn: DomainName.new!(parsed_data.data)},
       query_tool: record.query_tool,
       answer_source: record.answer_source
     })
@@ -625,6 +625,7 @@ defmodule Dns.Core do
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: data,
+      structured_data: %{raw_data: record.data},
       query_tool: record.query_tool,
       answer_source: record.answer_source
     })
@@ -651,6 +652,7 @@ defmodule Dns.Core do
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: handle_record_data(record.data),
+      structured_data: %{fqdn: DomainName.new!(record.data)},
       child_records: children,
       query_tool: record.query_tool,
       answer_source: record.answer_source
@@ -696,6 +698,7 @@ defmodule Dns.Core do
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: Enum.join(record.data, " || "),
+      structured_data: %{raw_data: record.data},
       query_tool: record.query_tool,
       answer_source: record.answer_source
     })
@@ -851,7 +854,6 @@ defmodule DnsRecord do
             specialised_type: nil,
             data: "",
             structured_data: %{},
-            priority: nil,
             ttl: nil,
             query_tool: "",
             answer_source: "",
@@ -868,7 +870,6 @@ defmodule DnsRecord do
       specialised_type: Map.get(dns_record, :specialised_type, nil),
       data: Map.get(dns_record, :data),
       structured_data: Map.get(dns_record, :structured_data, %{}),
-      priority: Map.get(dns_record, :priority, nil),
       ttl: dns_record.ttl,
       child_records: Map.get(dns_record, :child_records, []),
       query_tool: Map.get(dns_record, :query_tool, ""),
@@ -1029,7 +1030,11 @@ defmodule Dns.ZoneTree do
         |> Dns.Query.resolves_to_already_seen?([options[:zone_root_domain]])
         |> case do
           true ->
-            [Dns.Query.get_cname_record(fqdn)]
+            [
+              fqdn
+              |> Dns.Query.get_cname_record()
+              |> Dns.Core.handle_record_payload(options)
+            ]
 
           false ->
             (Dns.ZoneTree.construct_dns_zone_tree(fqdn, options) ++
@@ -1179,58 +1184,6 @@ end
 ```
 
 ```elixir
-fqdn =
-  verified_domain
-
-# "api.magicpillsmovie.com"
-# "school.magicpillsmovie.com"
-# "watch.magicpillsmovie.com"
-# "email.reply.magicpillsmovie.com"
-# "www.magicpillsmovie.com"
-# "go.magicpillsmovie.com"
-# |> DomainName.new!()
-
-fqdn
-|> Dns.ZoneTree.get_dkim_records(
-  zone_root_domain: verified_domain,
-  parent_domain: fqdn,
-  dmarc_subdomain_label: dmarc_subdomain_label,
-  dkim_subdomain_label: dkim_subdomain_label,
-  known_dkim_selector_list: known_dkim_selector_list
-)
-
-# |> case do
-#   [
-#     %DnsRecord{name: name_first} = first_record,
-#     %DnsRecord{name: name_second} = second_record | _
-#   ] =
-#       result_chain ->
-#     IO.inspect("At least two maps in list")
-#     IO.inspect(first_record, label: "First record")
-#     IO.inspect(second_record, label: "Second record")
-
-#     Q.resolve_chain(
-#       fqdn,
-#       name_first,
-#       name_second,
-#       result_chain,
-#       []
-#     )
-
-#   [%DnsRecord{name: name} = record | []] ->
-#     IO.inspect("Single map in list")
-#     IO.inspect(record, label: "One record")
-#     record
-
-#   [[]] ->
-#     []
-
-#   [] ->
-#     []
-# end
-```
-
-```elixir
 # zone_root_record = Dns.ZoneTree.define_root_of_tree(verified_domain)
 zone_root_record =
   %ZoneRootDomain{
@@ -1273,167 +1226,54 @@ x_zone_tree =
 
 ```elixir
 defmodule Q do
-  def resolve_chain(_parent_domain, child_domain, _subsequent_domain, [record | []], []) do
-    IO.inspect(child_domain, label: "=> 1. No children to traverse. Finished")
-    record
+  # The next children list is empty, return current record and end
+  def resolve_chain(current_node, [] = _subsequent_nodes)
+      when is_struct(current_node, DnsRecord) do
+    IO.inspect("==> Resolve chain: 0. no next records")
+    current_node
   end
 
-  def resolve_chain(
-        _parent_domain,
-        child_domain,
-        subsequent_domain,
-        [record | []],
-        [next_child | tail] = subsequent_children
-      ) do
-    IO.inspect(child_domain, label: "=> 3. Constructing node children")
-    IO.inspect(subsequent_domain, label: "Subsequent domain")
-    IO.inspect(record, label: "Record")
-    IO.inspect(next_child, label: "Next node")
+  # Worker, placing the (head of) tail node into the current child's child_nodes
+  # recursively call on the new next children list
+  def resolve_chain(current_node, [next_node | subsequent_nodes])
+      when is_struct(current_node, DnsRecord) and is_struct(next_node, DnsRecord) do
+    IO.inspect("==> Resolve chain: 1. working step")
 
     cond do
-      DomainName.equal?(child_domain, next_child.name) ->
-        IO.inspect("=-> Child and next record equate. Swithcing to listing mode")
-        Enum.map([record | subsequent_children], fn rec -> rec end)
+      current_node.type not in [:a, :aaaa, :soa, :txt] ->
+        current_node
+        |> Map.merge(%{
+          child_records: [
+            resolve_chain(next_node, subsequent_nodes)
+          ]
+        })
 
       true ->
-        record
-        |> Map.merge(%{
-          child_records:
-            cond do
-              record.type in [:a, :aaaa, :soa, :txt] ->
-                IO.inspect(record.data, label: "==> Non-traversable records encountered")
-                []
-
-              # is_list(record.data) and next_child != [] ->
-              next_child != [] ->
-                IO.inspect(record.data, label: "==> Descending one level deeper")
-                IO.inspect(child_domain, label: "Child domain")
-                IO.inspect(subsequent_domain, label: "Subsequent domain")
-                IO.inspect(subsequent_children, label: "Next child")
-                IO.inspect(tail, label: "Tail")
-
-                [
-                  resolve_chain(
-                    child_domain,
-                    subsequent_domain,
-                    cond do
-                      is_map(List.first(tail)) and Map.get(List.first(tail), :name, nil) ->
-                        tail
-                        |> List.first()
-                        |> Map.get(:name, "")
-
-                      true ->
-                        ""
-                    end,
-                    [next_child],
-                    tail
-                  )
-                ]
-
-              true ->
-                IO.inspect(record.data, label: "==> No traversal possible")
-                []
-            end
-        })
+        current_node
     end
   end
 
-  def resolve_chain(_parent_domain, child_domain, child_domain, record, child_records) do
-    IO.inspect(child_domain, label: "=> 4. Child and subsequent domains match")
-    IO.inspect(List.first(record), label: "4.5 Child head")
-    IO.inspect(List.last(record), label: "4.6 Child tail")
-    IO.inspect(child_records, label: "4.6 Child records")
+  # Parent and current child domains match
+  def resolve_chain(
+        [
+          %{structured_data: %{fqdn: next_domain}} = current_node,
+          %{name: next_domain} = next_node | tail
+        ],
+        []
+      ) do
+    IO.inspect("==> Resolve chain: 2. parent-child nodes")
 
-    Enum.map([record | child_records], fn rec -> rec end)
+    resolve_chain(current_node, [next_node | tail])
+  end
+
+  # The current and next child domains match, enter sibling mode
+  def resolve_chain([%{name: name}, %{name: name} | _tail] = sibling_nodes, []) do
+    IO.inspect("==> Resolve chain: 3. sibling mode")
+
+    Enum.map(sibling_nodes, fn node -> node end)
     |> List.flatten()
   end
-
-  def resolve_chain(
-        parent_domain,
-        parent_domain,
-        subsequent_domain,
-        [head | tail],
-        _child_records
-      ) do
-    IO.inspect(parent_domain, label: "=> 5. Parent & child domains match")
-    IO.inspect(subsequent_domain, label: "5.5 Subsequent domain")
-    IO.inspect(tail, label: "5.6 Tail")
-    # IO.inspect(parent_domain, label: "Parent domain")
-    # IO.inspect(head, label: "Head")
-    # IO.inspect(tail, label: "Function 2")
-    resolve_chain(parent_domain, parent_domain, subsequent_domain, [head], tail)
-  end
 end
-```
-
-```elixir
-defmodule Z do
-  # Module to deprecate
-  def traverse_tree(tree) do
-    # IO.inspect(List.first(tree), label: "=> Z1. Traversing tree")
-    IO.inspect("=> Z1. Traversing tree")
-
-    Enum.map(tree, fn node ->
-      traverse_children(node)
-      # node when is_map(node) -> traverse_children(node)
-      # node when is_list(node) -> traverse_tree(node)
-    end)
-  end
-
-  # def traverse_children(node) when is_map(node) do
-  # IO.inspect(node, label: "==> Z2. Traversing map node")
-  # node
-  # end
-
-  def traverse_children(node) do
-    IO.inspect(node, label: "==> Z3. Traversing other node")
-
-    node
-    |> Map.merge(%{
-      child_records:
-        Enum.map(node.child_records, fn child ->
-          case child do
-            [next_record | [subsequent_record | _tail]] ->
-              IO.inspect(next_record, label: "--> At least 2 sub children. Next record")
-              IO.inspect(subsequent_record, label: "--> Subsequent record")
-              # IO.inspect(node.children, label: "Children")
-              # IO.inspect(next_record, label: "Next record")
-              # IO.inspect(subsequent_record, label: "Subsequent record")
-
-              Q.resolve_chain(
-                node.fqdn,
-                DomainName.new!(next_record.domain),
-                DomainName.new!(subsequent_record.domain),
-                child,
-                []
-              )
-
-            [[]] ->
-              []
-
-            [next_record | _tail] ->
-              IO.inspect(next_record, label: "--> At least 1 sub child. Next record")
-
-              cond do
-                is_map(next_record) and Map.get(next_record, :child_records, nil) ->
-                  traverse_children(next_record)
-
-                true ->
-                  next_record
-              end
-
-            [] ->
-              []
-          end
-        end)
-    })
-  end
-end
-
-# Z.traverse_tree(x_zone_tree.zone_tree)
-# {node, _} = List.pop_at(x_zone_tree, 3)
-# Z.traverse_tree([node])
-# x_zone_tree.children
 ```
 
 ```elixir
