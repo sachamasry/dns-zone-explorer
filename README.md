@@ -9,11 +9,14 @@ anomalies or vulnerabilities.
 - Determine a scheme by which to present subdomains and the records emanating from them
   - Classify subdomains
   - Handle their subtrees
+- Clean up zone tree
+  - Remove empty lists and other nil results
+  - Flatten `child_records` lists
 - Create a HTML, text-like presentation of the zone tree
   - Allow expansion of the branches of the tree
   - Present all interesting record information
 - Create a flat record structure, which an administrator would use to reconstruct the zone
 - Create a fully visual, tree-like graphic presentation of the tree, using Mermaid.js
-- Clean up Livebook
+- Clean up Livebook code
 - Fully document code, write up decisions taken, with their reasons
 - Fully document the project in this README file

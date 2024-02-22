@@ -439,7 +439,6 @@ defmodule Dns.Core do
   def handle_query_result_chain(record_chain, options \\ [])
       when is_list(record_chain) do
     record_chain
-    |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
     |> Enum.map(fn rec -> construct_dns_record_dispatcher(rec, options) end)
     |> classify_record_chain_type()
     |> convert_record_chain_to_tree()
@@ -481,6 +480,18 @@ defmodule Dns.Core do
 
       _ ->
         IO.inspect("Other type")
+    end
+  end
+
+  def index_record_dispatcher(record, index) do
+    record
+    |> Map.get(:type)
+    |> case do
+      :ns -> index_ns_record(record, index)
+      :mx -> index_mx_record(record, index)
+      :a -> index_a_record(record, index)
+      :aaaa -> index_a_record(record, index)
+      _ -> record
     end
   end
 
@@ -555,17 +566,24 @@ defmodule Dns.Core do
     fqdn = DomainName.new!(record.domain)
 
     DnsRecord.construct_dns_record(%{
-      id: "ns-#{record.id}-#{record.domain}",
+      id: "NS #{record.data}",
       type: record.type,
       weight: 5,
       name: fqdn,
-      display_name: "NS #{record.id}",
+      display_name: "NS",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: "#{record.data}",
       structured_data: %{fqdn: DomainName.new!(record.data)},
       query_tool: record.query_tool,
       answer_source: record.answer_source
+    })
+  end
+
+  def index_ns_record(record, index) when is_struct(record, DnsRecord) and is_number(index) do
+    Map.merge(record, %{
+      id: Enum.join(["NS", index, record.name], "-"),
+      display_name: "NS #{index}"
     })
   end
 
@@ -581,17 +599,24 @@ defmodule Dns.Core do
     parsed_data = Dns.Core.handle_mx_record_data(record.data)
 
     DnsRecord.construct_dns_record(%{
-      id: "mx-#{record.id}",
+      id: "MX-#{parsed_data.data}",
       type: record.type,
       weight: 10,
       name: fqdn,
-      display_name: "MX #{record.id} #{record.domain}",
+      display_name: "MX #{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: to_string(parsed_data.data),
       structured_data: %{priority: parsed_data.priority, fqdn: DomainName.new!(parsed_data.data)},
       query_tool: record.query_tool,
       answer_source: record.answer_source
+    })
+  end
+
+  def index_mx_record(record, index) when is_struct(record, DnsRecord) and is_number(index) do
+    Map.merge(record, %{
+      id: Enum.join(["MX", index, record.name], "-"),
+      display_name: Enum.join(["MX", index, record.name], " ")
     })
   end
 
@@ -617,7 +642,7 @@ defmodule Dns.Core do
       end
 
     DnsRecord.construct_dns_record(%{
-      id: "#{record.domain}",
+      id: "A-#{data}",
       type: record.type,
       weight: 15,
       name: fqdn,
@@ -628,6 +653,12 @@ defmodule Dns.Core do
       structured_data: %{raw_data: record.data},
       query_tool: record.query_tool,
       answer_source: record.answer_source
+    })
+  end
+
+  def index_a_record(record, index) when is_struct(record, DnsRecord) and is_number(index) do
+    Map.merge(record, %{
+      id: Enum.join(["A", index, record.name], "-")
     })
   end
 
@@ -644,7 +675,7 @@ defmodule Dns.Core do
     children = Keyword.get(options, :children, [])
 
     DnsRecord.construct_dns_record(%{
-      id: "#{record.domain}",
+      id: "CNAME-#{record.domain}",
       type: record.type,
       weight: 20,
       name: fqdn,
@@ -679,7 +710,7 @@ defmodule Dns.Core do
       )
 
     id_construction =
-      ["txt", id_prefix, specialised_type, record.id]
+      ["TXT", id_prefix, specialised_type, record.domain]
       |> Enum.reject(fn i -> i == "" end)
       |> Enum.join("-")
 
@@ -845,7 +876,7 @@ To make reading and traversal of our zone easier, a `DnsRecord` structure will s
 
 ```elixir
 defmodule DnsRecord do
-  defstruct id: "",
+  defstruct id: nil,
             name: nil,
             display_name: "",
             inside_zone: false,
@@ -861,7 +892,7 @@ defmodule DnsRecord do
 
   def construct_dns_record(dns_record) when is_map(dns_record) do
     %DnsRecord{
-      id: dns_record.id,
+      id: Map.get(dns_record, :id, nil),
       name: Map.get(dns_record, :name, nil),
       display_name: Map.get(dns_record, :display_name, ""),
       inside_zone: dns_record.inside_zone,
@@ -1267,11 +1298,17 @@ defmodule Q do
   end
 
   # The current and next child domains match, enter sibling mode
+  # Since the next two records are siblings, all remaining records are siblings
+  # Sort by the `data` field and apply an index function, providing them with a unique ID
   def resolve_chain([%{name: name}, %{name: name} | _tail] = sibling_nodes, []) do
     IO.inspect("==> Resolve chain: 3. sibling mode")
 
     Enum.map(sibling_nodes, fn node -> node end)
     |> List.flatten()
+    |> Enum.sort_by(fn rec -> rec.data end)
+    |> Enum.with_index(fn rec, index ->
+      Dns.Core.index_record_dispatcher(rec, index + 1)
+    end)
   end
 end
 ```
