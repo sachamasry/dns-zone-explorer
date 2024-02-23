@@ -746,8 +746,8 @@ defmodule Dns.Core do
         # payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
         handle_query_result_chain(payload, options)
 
-      {:error, _} ->
-        IO.inspect("", label: "3 - {:error, _}")
+      {:error, reason} ->
+        IO.inspect(reason, label: "3 - {:error, _}")
         []
 
       [ok: []] ->
@@ -763,14 +763,13 @@ defmodule Dns.Core do
         IO.inspect("", label: "6 - [:error, _]")
         []
 
-      [head | tail] = record_list when is_list(record_list) and is_list(head) ->
+      [head | _tail] = record_list when is_list(record_list) and is_list(head) ->
         IO.inspect(record_list, label: "7 - [[record_list]]")
         Enum.map(record_list, fn item -> handle_record_payload(item, options) end)
 
-      [head | tail] = record_list when is_list(record_list) and is_map(head) ->
+      [head | _tail] = record_list when is_list(record_list) and is_map(head) ->
         IO.inspect(record_list, label: "8 - [%{record_list}]")
-        # payload |> Enum.with_index(fn rec, index -> Map.merge(rec, %{id: index + 1}) end)
-        handle_query_result_chain(payload, options)
+        handle_query_result_chain(record_list, options)
 
       [] ->
         IO.inspect("", label: "8 - []")
@@ -975,6 +974,10 @@ defmodule Dns.ZoneTree do
         get_dkim_records(fqdn, options)
       )
     ]
+    |> Enum.reject(fn sublist -> sublist == [] end)
+
+    # |> List.flatten()
+    # |> IO.inspect(label: "### Zone tree construct, after flattening")
 
     # |> Enum.sort_by(fn rec -> {rec.weight, rec.type, rec.name, rec.data} end)
   end
@@ -1009,11 +1012,7 @@ defmodule Dns.ZoneTree do
     |> Dns.Core.handle_record_payload(options)
   end
 
-  def get_cname_zone_records(
-        subdomain_list,
-        options \\ []
-      )
-      when is_list(subdomain_list) do
+  def get_cname_zone_records(subdomain_list, options \\ []) when is_list(subdomain_list) do
     subdomain_list
     |> Enum.map(fn %{host: host} = rec ->
       Map.merge(rec, %{
@@ -1026,6 +1025,7 @@ defmodule Dns.ZoneTree do
     |> Enum.map(fn rec ->
       construct_cname_tree(rec, rec.host_labels, [], "", options)
     end)
+    |> Enum.reject(fn rec -> rec == [] end)
 
     # |> Enum.map(fn %{host: host} = rec ->
     #   resolve_for_cname_or_a(host) |> Enum.map(fn irec -> Map.merge(irec, rec) end)
@@ -1068,19 +1068,18 @@ defmodule Dns.ZoneTree do
             ]
 
           false ->
-            (Dns.ZoneTree.construct_dns_zone_tree(fqdn, options) ++
-               [
-                 [
-                   construct_cname_tree(
-                     rec,
-                     child_records,
-                     [],
-                     DomainName.name(host_name),
-                     options
-                   )
-                 ]
-               ])
+            [
+              Dns.ZoneTree.construct_dns_zone_tree(fqdn, options),
+              construct_cname_tree(
+                rec,
+                child_records,
+                [],
+                DomainName.name(host_name),
+                options
+              )
+            ]
             |> Enum.reject(fn i -> i == [] end)
+            |> List.flatten()
         end
     })
   end
@@ -1234,24 +1233,26 @@ zone_root_record =
 x_zone_tree =
   zone_root_record
   |> Map.merge(%{
-    zone_tree: [
-      Dns.ZoneTree.construct_dns_zone_tree(
-        verified_domain,
-        zone_root_domain: verified_domain,
-        parent_domain: verified_domain,
-        dmarc_subdomain_label: dmarc_subdomain_label,
-        dkim_subdomain_label: dkim_subdomain_label,
-        known_dkim_selector_list: known_dkim_selector_list
-      ),
-      Dns.ZoneTree.get_cname_zone_records(
-        enumerated_subdomains,
-        zone_root_domain: verified_domain,
-        parent_domain: verified_domain,
-        dmarc_subdomain_label: dmarc_subdomain_label,
-        dkim_subdomain_label: dkim_subdomain_label,
-        known_dkim_selector_list: known_dkim_selector_list
-      )
-    ]
+    zone_tree:
+      [
+        Dns.ZoneTree.construct_dns_zone_tree(
+          verified_domain,
+          zone_root_domain: verified_domain,
+          parent_domain: verified_domain,
+          dmarc_subdomain_label: dmarc_subdomain_label,
+          dkim_subdomain_label: dkim_subdomain_label,
+          known_dkim_selector_list: known_dkim_selector_list
+        ),
+        Dns.ZoneTree.get_cname_zone_records(
+          enumerated_subdomains,
+          zone_root_domain: verified_domain,
+          parent_domain: verified_domain,
+          dmarc_subdomain_label: dmarc_subdomain_label,
+          dkim_subdomain_label: dkim_subdomain_label,
+          known_dkim_selector_list: known_dkim_selector_list
+        )
+      ]
+      |> List.flatten()
   })
 ```
 
