@@ -1232,93 +1232,6 @@ zone_root_record =
 ```
 
 ```elixir
-x_zone_tree =
-  zone_root_record
-  |> Map.merge(%{
-    zone_tree:
-      [
-        Dns.ZoneTree.construct_dns_zone_tree(
-          verified_domain,
-          zone_root_domain: verified_domain,
-          parent_domain: verified_domain,
-          dmarc_subdomain_label: dmarc_subdomain_label,
-          dkim_subdomain_label: dkim_subdomain_label,
-          known_dkim_selector_list: known_dkim_selector_list
-        )
-        |> Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(),
-        Dns.ZoneTree.get_cname_zone_records(
-          enumerated_subdomains,
-          zone_root_domain: verified_domain,
-          parent_domain: verified_domain,
-          dmarc_subdomain_label: dmarc_subdomain_label,
-          dkim_subdomain_label: dkim_subdomain_label,
-          known_dkim_selector_list: known_dkim_selector_list
-        )
-        |> Enum.map(fn subdomain ->
-          Map.merge(subdomain, %{
-            child_records:
-              Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(subdomain.child_records)
-          })
-        end)
-      ]
-      |> List.flatten()
-  })
-```
-
-```elixir
-defmodule Dns.ZoneTree.MergeTrees do
-  def compare_list_items_in_pairs([_tree1 | []] = tree_list), do: tree_list
-
-  def compare_list_items_in_pairs([_tree1, _tree2 | _] = tree_list) do
-    tree_list
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.map(fn
-      [tree1, tree2 | []] ->
-        Dns.ZoneTree.MergeTrees.compare_child_trees(tree1, tree2)
-
-      [tree1 | []] ->
-        tree1
-    end)
-  end
-
-  def compare_child_trees(
-        %DnsRecord{
-          name: name,
-          type: type,
-          structured_data: structured_data
-        } = tree1,
-        %DnsRecord{
-          name: name,
-          type: type,
-          structured_data: structured_data
-        } = tree2
-      ) do
-    merge_records(tree1, tree2)
-  end
-
-  def compare_child_trees([tree1 | []], [tree2 | []]), do: compare_child_trees(tree1, tree2)
-
-  def compare_child_trees(tree1, _tree2), do: tree1
-
-  def merge_records(
-        %DnsRecord{
-          answer_source: answer1_source,
-          child_records: child1_records
-        } = tree1,
-        %DnsRecord{
-          answer_source: answer2_source,
-          child_records: child2_records
-        }
-      ) do
-    Map.merge(tree1, %{
-      answer_source: Enum.join([answer1_source, answer2_source], ", "),
-      child_records: compare_child_trees(child1_records, child2_records)
-    })
-  end
-end
-```
-
-```elixir
 defmodule Q do
   # The next children list is empty, return current record and end
   def resolve_chain(current_node, [] = _subsequent_nodes)
@@ -1376,17 +1289,107 @@ defmodule Q do
 end
 ```
 
+## Merging subtrees
+
+As strange as it sounds, the way the Erlang `:inet_res.resolve/3` query works is that it iteratively queries a domain for the requested type, returning a chain of results leading up to the final answer. The upstream function, `:inet_res.lookup/3` builds on top of `resolve/3`, filtering out the answer with the requested `Class` and `Type`.
+
+This is useful in providing a `traceroute` like functionality, showing all the resolution steps leading up to the answer, but has a strange side-effect: it can result in duplicate records. For example, on an FQDN that has both `A` and `AAAA` records, at the end of a long chain of `CNAME` aliases (somewhat common when using external services), every step of the way to the answer will be a duplicate record for the two queries.
+
+It isn't useful having this duplication in the tree, so the best thing to do with it is to merge all duplicate nodes together, and only finally have the last-step answers fan out at the end of the tree. Given the above example, all the steps in a long `CNAME` chain, will be merged, with both sets of answers sharing the same _trunk_ of the tree, ending in multiple _leaf_ nodes for the final `A` and `AAAA` type record resolutions. This provides us with a cleaner zone tree.
+
+<!-- livebook:{"break_markdown":true} -->
+
+Functionally, the work is simple, taking a list of each subdomain's (as well as the root domain's) child trees, applying a _sliding window_ comparing every pair of adjacent tree records for equality, merging them if they match. This is a faster approach than a combinatoric effort to match every tree with every other in the list, as the latter is arguably not needed. Realistically, most record types (encountered to date) will not use `CNAME` aliasing. To do so could result in breaking older DNS resolvers, think putting an `MX` record behind a `CNAME`. It's not impossible, but unlikely. The expectation is that this will mostly be [ab]used on `A`, `AAAA` and `TXT` records. And, as the tree is built with these queries kept adjacent, the adopted approach is likely to work in all current situations. As with all things, there is much unexpected and exotic use of DNS in the wild, so these assumptions may not hold for long.
+
+<!-- livebook:{"break_markdown":true} -->
+
+Once two records are selected, the structures aren't compared in depth; only the most important fields—`name`, `type`, and `structured_data`—are compared, as the others are deemed irrelevant (such as `TTL`), or unnecessary, such as `display_name` strings, favouring structured data. When a match is found, a `Map.merge/2` is sufficient to update `child_records`, at which point the match is retried recursively, for instances where there is a long list of `CNAME` redirections before the answer. Long chains of redirections are now quite common, used by external services to create the illusion of a customer's subdomain, pointing to an internal service type, pointing to a cloud region, pointing to an individual cloud server instance, all the way to the server registering the record with the answer.
+
 ```elixir
-q_list = [1, 2, 3]
-list when is_list(q_list) = q_list
+defmodule Dns.ZoneTree.MergeTrees do
+  def compare_list_items_in_pairs([_tree1 | []] = tree_list), do: tree_list
+
+  def compare_list_items_in_pairs([_tree1, _tree2 | _] = tree_list) do
+    tree_list
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn
+      [tree1, tree2 | []] ->
+        Dns.ZoneTree.MergeTrees.compare_child_trees(tree1, tree2)
+
+      [tree1 | []] ->
+        tree1
+    end)
+  end
+
+  def compare_child_trees(
+        %DnsRecord{
+          name: name,
+          type: type,
+          structured_data: structured_data
+        } = tree1,
+        %DnsRecord{
+          name: name,
+          type: type,
+          structured_data: structured_data
+        } = tree2
+      ) do
+    merge_records(tree1, tree2)
+  end
+
+  def compare_child_trees([tree1 | []], [tree2 | []]), do: compare_child_trees(tree1, tree2)
+
+  def compare_child_trees(tree1, _tree2), do: tree1
+
+  def merge_records(
+        %DnsRecord{
+          answer_source: answer1_source,
+          child_records: child1_records
+        } = tree1,
+        %DnsRecord{
+          answer_source: answer2_source,
+          child_records: child2_records
+        }
+      ) do
+    Map.merge(tree1, %{
+      answer_source: Enum.join([answer1_source, answer2_source], ", "),
+      child_records: compare_child_trees(child1_records, child2_records)
+    })
+  end
+end
 ```
 
 ```elixir
-list = [[%{a: 1}], %{a: 2}]
-
-[head | tail] = list
-
-List.pop_at(list, 0)
+x_zone_tree =
+  zone_root_record
+  |> Map.merge(%{
+    zone_tree:
+      [
+        Dns.ZoneTree.construct_dns_zone_tree(
+          verified_domain,
+          zone_root_domain: verified_domain,
+          parent_domain: verified_domain,
+          dmarc_subdomain_label: dmarc_subdomain_label,
+          dkim_subdomain_label: dkim_subdomain_label,
+          known_dkim_selector_list: known_dkim_selector_list
+        )
+        |> Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(),
+        Dns.ZoneTree.get_cname_zone_records(
+          enumerated_subdomains,
+          zone_root_domain: verified_domain,
+          parent_domain: verified_domain,
+          dmarc_subdomain_label: dmarc_subdomain_label,
+          dkim_subdomain_label: dkim_subdomain_label,
+          known_dkim_selector_list: known_dkim_selector_list
+        )
+        |> Enum.map(fn subdomain ->
+          Map.merge(subdomain, %{
+            child_records:
+              Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(subdomain.child_records)
+          })
+        end)
+      ]
+      |> List.flatten()
+  })
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
