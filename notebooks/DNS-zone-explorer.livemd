@@ -641,8 +641,10 @@ defmodule Dns.Core do
         _ -> nil
       end
 
+    id = Enum.join([String.upcase(to_string(record.type)), fqdn], "-")
+
     DnsRecord.construct_dns_record(%{
-      id: "A-#{data}",
+      id: id,
       type: record.type,
       weight: 15,
       name: fqdn,
@@ -658,7 +660,7 @@ defmodule Dns.Core do
 
   def index_a_record(record, index) when is_struct(record, DnsRecord) and is_number(index) do
     Map.merge(record, %{
-      id: Enum.join(["A", index, record.name], "-")
+      id: Enum.join([String.upcase(to_string(record.type)), index, record.name], "-")
     })
   end
 
@@ -1242,7 +1244,8 @@ x_zone_tree =
           dmarc_subdomain_label: dmarc_subdomain_label,
           dkim_subdomain_label: dkim_subdomain_label,
           known_dkim_selector_list: known_dkim_selector_list
-        ),
+        )
+        |> Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(),
         Dns.ZoneTree.get_cname_zone_records(
           enumerated_subdomains,
           zone_root_domain: verified_domain,
@@ -1251,9 +1254,68 @@ x_zone_tree =
           dkim_subdomain_label: dkim_subdomain_label,
           known_dkim_selector_list: known_dkim_selector_list
         )
+        |> Enum.map(fn subdomain ->
+          Map.merge(subdomain, %{
+            child_records:
+              Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(subdomain.child_records)
+          })
+        end)
       ]
       |> List.flatten()
   })
+```
+
+```elixir
+defmodule Dns.ZoneTree.MergeTrees do
+  def compare_list_items_in_pairs([_tree1 | []] = tree_list), do: tree_list
+
+  def compare_list_items_in_pairs([_tree1, _tree2 | _] = tree_list) do
+    tree_list
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn
+      [tree1, tree2 | []] ->
+        Dns.ZoneTree.MergeTrees.compare_child_trees(tree1, tree2)
+
+      [tree1 | []] ->
+        tree1
+    end)
+  end
+
+  def compare_child_trees(
+        %DnsRecord{
+          name: name,
+          type: type,
+          structured_data: structured_data
+        } = tree1,
+        %DnsRecord{
+          name: name,
+          type: type,
+          structured_data: structured_data
+        } = tree2
+      ) do
+    merge_records(tree1, tree2)
+  end
+
+  def compare_child_trees([tree1 | []], [tree2 | []]), do: compare_child_trees(tree1, tree2)
+
+  def compare_child_trees(tree1, _tree2), do: tree1
+
+  def merge_records(
+        %DnsRecord{
+          answer_source: answer1_source,
+          child_records: child1_records
+        } = tree1,
+        %DnsRecord{
+          answer_source: answer2_source,
+          child_records: child2_records
+        }
+      ) do
+    Map.merge(tree1, %{
+      answer_source: Enum.join([answer1_source, answer2_source], ", "),
+      child_records: compare_child_trees(child1_records, child2_records)
+    })
+  end
+end
 ```
 
 ```elixir

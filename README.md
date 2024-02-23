@@ -6,8 +6,6 @@ anomalies or vulnerabilities.
 
 ## To do
 
-- Clean up zone tree
-  - Merge subtrees with duplicate trunks
 - Calculate tree depth and store inside record
 - Determine a scheme by which to present subdomains and the records emanating from them
   - Classify subdomains
