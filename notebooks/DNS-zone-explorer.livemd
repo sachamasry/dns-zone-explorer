@@ -515,6 +515,7 @@ defmodule Dns.Core do
       :mx -> index_mx_record(record, index)
       :a -> index_a_record(record, index)
       :aaaa -> index_a_record(record, index)
+      :caa -> index_caa_record(record, index)
       _ -> record
     end
   end
@@ -737,7 +738,7 @@ defmodule Dns.Core do
 
     id_construction =
       ["TXT", id_prefix, specialised_type, record.domain]
-      |> Enum.reject(fn i -> i == "" end)
+      |> Enum.reject(fn i -> i == "" or is_nil(i) end)
       |> Enum.join("-")
 
     display_name_construction =
@@ -794,7 +795,7 @@ defmodule Dns.Core do
     parsed_data = Dns.Core.handle_caa_record_data(record.data)
 
     DnsRecord.construct_dns_record(%{
-      id: "CAA-#{record.domain}",
+      id: Enum.join(["CAA", record.domain], "-"),
       type: record.type,
       weight: 40,
       name: fqdn,
@@ -805,6 +806,12 @@ defmodule Dns.Core do
       structured_data: %{flag: parsed_data.flag, tag: parsed_data.tag, value: parsed_data.value},
       query_tool: record.query_tool,
       answer_source: record.answer_source
+    })
+  end
+
+  def index_caa_record(record, index) when is_struct(record, DnsRecord) and is_number(index) do
+    Map.merge(record, %{
+      id: Enum.join(["CAA", index, record.name], "-")
     })
   end
 
@@ -1341,6 +1348,20 @@ end
 ```
 
 ```elixir
+fqdn =
+  "email.reply.magicpillsmovie.com"
+  |> DomainName.new!()
+
+Dns.ZoneTree.get_caa_zone_records(fqdn,
+  zone_root_domain: verified_domain,
+  parent_domain: verified_domain,
+  dmarc_subdomain_label: dmarc_subdomain_label,
+  dkim_subdomain_label: dkim_subdomain_label,
+  known_dkim_selector_list: known_dkim_selector_list
+)
+```
+
+```elixir
 # zone_root_record = Dns.ZoneTree.define_root_of_tree(verified_domain)
 zone_root_record =
   %ZoneRootDomain{
@@ -1363,26 +1384,6 @@ defmodule Q do
       when is_struct(current_node, DnsRecord) do
     IO.inspect("==> Resolve chain: 0. no next records")
     current_node
-  end
-
-  # Worker, placing the (head of) tail node into the current child's child_nodes
-  # recursively call on the new next children list
-  def resolve_chain(current_node, [next_node | subsequent_nodes])
-      when is_struct(current_node, DnsRecord) and is_struct(next_node, DnsRecord) do
-    IO.inspect("==> Resolve chain: 1. working step")
-
-    cond do
-      current_node.type not in [:a, :aaaa, :soa, :txt] ->
-        current_node
-        |> Map.merge(%{
-          child_records: [
-            resolve_chain(next_node, subsequent_nodes)
-          ]
-        })
-
-      true ->
-        current_node
-    end
   end
 
   # Parent and current child domains match
@@ -1410,6 +1411,40 @@ defmodule Q do
     |> Enum.with_index(fn rec, index ->
       Dns.Core.index_record_dispatcher(rec, index + 1)
     end)
+  end
+
+  def resolve_chain(
+        %{name: name} = current_node,
+        [%{name: name} = next_node | tail_nodes] = _sibling_nodes
+      ) do
+    IO.inspect("==> Resolve chain: 3.1. sibling modes")
+
+    Enum.map([current_node, next_node | tail_nodes], fn node -> node end)
+    |> List.flatten()
+    |> Enum.sort_by(fn rec -> rec.data end)
+    |> Enum.with_index(fn rec, index ->
+      Dns.Core.index_record_dispatcher(rec, index + 1)
+    end)
+  end
+
+  # Worker, placing the (head of) tail node into the current child's child_nodes
+  # recursively call on the new next children list
+  def resolve_chain(current_node, [next_node | subsequent_nodes])
+      when is_struct(current_node, DnsRecord) and is_struct(next_node, DnsRecord) do
+    IO.inspect("==> Resolve chain: 1. working step")
+
+    cond do
+      current_node.type not in [:a, :aaaa, :soa, :txt] ->
+        current_node
+        |> Map.merge(%{
+          child_records: [
+            resolve_chain(next_node, subsequent_nodes)
+          ]
+        })
+
+      true ->
+        current_node
+    end
   end
 end
 ```
@@ -1532,11 +1567,12 @@ x_zone_tree =
           dkim_subdomain_label: dkim_subdomain_label,
           known_dkim_selector_list: known_dkim_selector_list
         )
-        # |> Enum.map(fn subdomain ->
-        #   Map.merge(subdomain, %{
-        #     child_records: Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(subdomain.child_records)
-        #   })
-        # end)
+        |> Enum.map(fn subdomain ->
+          Map.merge(subdomain, %{
+            child_records:
+              Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(subdomain.child_records)
+          })
+        end)
       ]
       |> List.flatten()
   })

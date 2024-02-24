@@ -6,6 +6,7 @@ anomalies or vulnerabilities.
 
 ## To do
 
+- Correct dropping of second-level subdomains when merging trees
 - Provide subdomains a record structure and type
 - Calculate tree depth and store inside record
 - Determine a scheme by which to present subdomains and the records emanating from them
