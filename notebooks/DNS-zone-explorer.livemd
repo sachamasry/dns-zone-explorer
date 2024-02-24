@@ -155,18 +155,6 @@ defmodule Dns.Query do
     end
   end
 
-  def get_a_records(fqdn) do
-    get_record_info(fqdn, :a) |> filter_for_matching_type(:a)
-  end
-
-  def get_aaaa_records(fqdn) do
-    get_record_info(fqdn, :aaaa) |> filter_for_matching_type(:aaaa)
-  end
-
-  def get_cname_record(fqdn) do
-    get_record_info(fqdn, :cname) |> filter_for_matching_type(:cname)
-  end
-
   def resolves_to_already_seen?(record_list, domains_seen)
       when is_list(record_list) and is_list(domains_seen) do
     Enum.map(record_list, fn rec ->
@@ -178,6 +166,18 @@ defmodule Dns.Query do
     end)
     |> List.flatten()
     |> Enum.any?(fn i -> i end)
+  end
+
+  def get_a_records(fqdn) do
+    get_record_info(fqdn, :a) |> filter_for_matching_type(:a)
+  end
+
+  def get_aaaa_records(fqdn) do
+    get_record_info(fqdn, :aaaa) |> filter_for_matching_type(:aaaa)
+  end
+
+  def get_cname_records(fqdn) do
+    get_record_info(fqdn, :cname) |> filter_for_matching_type(:cname)
   end
 
   def get_ns_records(fqdn) do
@@ -224,6 +224,18 @@ defmodule Dns.Query do
       {:error, _} -> false
       _ -> true
     end)
+  end
+
+  def get_caa_records(fqdn) do
+    get_record_info(fqdn, :caa) |> filter_for_matching_type(:caa)
+  end
+
+  def get_srv_records(fqdn) do
+    get_record_info(fqdn, :srv) |> filter_for_matching_type(:srv)
+  end
+
+  def get_spf_records(fqdn) do
+    get_record_info(fqdn, :spf) |> filter_for_matching_type(:spf)
   end
 end
 ```
@@ -477,6 +489,18 @@ defmodule Dns.Core do
       %{type: :txt} = record ->
         IO.inspect("TXT type")
         construct_txt_record(record, options)
+
+      %{type: :spf} = record ->
+        IO.inspect("SPF type")
+        construct_spf_record(record, options)
+
+      %{type: :caa} = record ->
+        IO.inspect("CAA type")
+        construct_caa_record(record, options)
+
+      %{type: :srv} = record ->
+        IO.inspect("SRV type")
+        construct_srv_record(record, options)
 
       _ ->
         IO.inspect("Other type")
@@ -737,6 +761,78 @@ defmodule Dns.Core do
     })
   end
 
+  defp construct_spf_record(record, options \\ []) do
+    fqdn = DomainName.new!(record.domain)
+
+    DnsRecord.construct_dns_record(%{
+      id: "SPF-legacy-#{record.domain}",
+      type: record.type,
+      specialised_type: :spf,
+      weight: 35,
+      name: fqdn,
+      display_name: "SPF [LEGACY] #{record.domain}",
+      inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
+      ttl: record.ttl,
+      data: Enum.join(record.data, " || "),
+      structured_data: %{raw_data: record.data},
+      query_tool: record.query_tool,
+      answer_source: record.answer_source
+    })
+  end
+
+  @doc """
+  Expects to receive a map, shaped as in the following example:
+
+  %{
+    data: {0, ~c"issuewild", ~c"digicert.com"}, type: :caa, ttl: 83,
+    domain: ~c"domain.org", class: :in, 
+    query_tool: "...", answer_source: "..."
+  }
+  """
+  defp construct_caa_record(record, options \\ []) do
+    fqdn = DomainName.new!(record.domain)
+    parsed_data = Dns.Core.handle_caa_record_data(record.data)
+
+    DnsRecord.construct_dns_record(%{
+      id: "CAA-#{record.domain}",
+      type: record.type,
+      weight: 40,
+      name: fqdn,
+      display_name: "CAA #{record.domain}",
+      inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
+      ttl: record.ttl,
+      data: "CAA Flag: #{parsed_data.flag} Tag: #{parsed_data.tag} Value: #{parsed_data.value}",
+      structured_data: %{flag: parsed_data.flag, tag: parsed_data.tag, value: parsed_data.value},
+      query_tool: record.query_tool,
+      answer_source: record.answer_source
+    })
+  end
+
+  defp construct_srv_record(record, options \\ []) do
+    fqdn = DomainName.new!(record.domain)
+    parsed_data = Dns.Core.handle_srv_record_data(record.data)
+
+    DnsRecord.construct_dns_record(%{
+      id: "SRV-#{record.domain}",
+      type: record.type,
+      weight: 45,
+      name: fqdn,
+      display_name: "SRV #{record.domain}",
+      inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
+      ttl: record.ttl,
+      data:
+        "SRV Priority: #{parsed_data.priority} Weight: #{parsed_data.weight} Port: #{parsed_data.port} Target: #{parsed_data.target}",
+      structured_data: %{
+        priority: parsed_data.priority,
+        weight: parsed_data.weight,
+        port: parsed_data.port,
+        target: parsed_data.target
+      },
+      query_tool: record.query_tool,
+      answer_source: record.answer_source
+    })
+  end
+
   def handle_record_payload(payload, options \\ []) do
     case payload do
       {:ok, []} ->
@@ -810,6 +906,14 @@ defmodule Dns.Core do
   end
 
   def handle_record_data(data), do: Kernel.to_string(data)
+
+  def handle_caa_record_data({flag, tag, value} = data) when is_tuple(data) do
+    %{flag: flag, tag: tag, value: value}
+  end
+
+  def handle_srv_record_data({priority, weight, port, target} = data) when is_tuple(data) do
+    %{priority: priority, weight: weight, port: port, target: target}
+  end
 end
 ```
 
@@ -974,7 +1078,10 @@ defmodule Dns.ZoneTree do
         IO.inspect("Getting DKIM records")
 
         get_dkim_records(fqdn, options)
-      )
+      ),
+      get_spf_zone_records(fqdn, options),
+      get_caa_zone_records(fqdn, options),
+      get_srv_zone_records(fqdn, options)
     ]
     |> Enum.reject(fn sublist -> sublist == [] end)
 
@@ -1045,6 +1152,84 @@ defmodule Dns.ZoneTree do
     # end)
   end
 
+  def get_txt_zone_records(fqdn, options \\ []) do
+    IO.inspect(options, label: "### Options")
+
+    fqdn
+    |> Dns.Query.get_txt_records()
+    |> Dns.Core.handle_record_payload(options)
+
+    # |> Enum.with_index(fn rec, index ->
+    #   Map.merge(rec, %{id: index + 1, special_type: Dns.Core.classify_txt_record_type(rec)})
+    # end)
+    # |> Enum.map(fn rec -> construct_txt_record(rec) end)
+  end
+
+  def get_dmarc_record(fqdn, options \\ []) do
+    options = Keyword.put(options, :query_intent, :dmarc)
+
+    fqdn
+    |> Dns.Query.get_dmarc_record(options[:dmarc_subdomain_label])
+    |> Dns.Core.handle_record_payload(options)
+
+    # |> Enum.with_index(fn rec, index ->
+    #   Map.merge(rec, %{id: index + 1, special_type: "DMARC"})
+    # end)
+    # |> Enum.map(fn rec ->
+    #   construct_txt_record(rec, id_prefix: "dmarc-")
+    # end)
+  end
+
+  def get_dkim_records(fqdn, options \\ []) do
+    options = Keyword.put(options, :query_intent, :dkim)
+    IO.inspect(options, label: "Options")
+
+    fqdn
+    |> Dns.Query.get_dkim_records(
+      options[:dkim_subdomain_label],
+      options[:known_dkim_selector_list]
+    )
+    |> Dns.Core.handle_record_payload(options)
+
+    # |> Enum.map(fn
+    #   [head | []] ->
+    #     head
+    #     |> Map.merge(%{id: head.domain, special_type: "DKIM"})
+    #     |> construct_txt_record(id_prefix: "")
+
+    #   [head | tail] ->
+    #     case head.type do
+    #       :cname ->
+    #         resolve_cname_chain(parent_domain, head, tail)
+
+    #       _ ->
+    #         nil
+    #     end
+
+    #   [] ->
+    #     []
+    # end)
+    # |> Enum.filter(fn i -> not is_nil(i) end)
+  end
+
+  def get_spf_zone_records(fqdn, options \\ []) do
+    fqdn
+    |> Dns.Query.get_spf_records()
+    |> Dns.Core.handle_record_payload(options)
+  end
+
+  def get_caa_zone_records(fqdn, options \\ []) do
+    fqdn
+    |> Dns.Query.get_caa_records()
+    |> Dns.Core.handle_record_payload(options)
+  end
+
+  def get_srv_zone_records(fqdn, options \\ []) do
+    fqdn
+    |> Dns.Query.get_srv_records()
+    |> Dns.Core.handle_record_payload(options)
+  end
+
   def construct_cname_tree(_rec, [], [], _acc, _options \\ []), do: []
 
   def construct_cname_tree(rec, [head | []], child_records, acc, options) do
@@ -1059,13 +1244,13 @@ defmodule Dns.ZoneTree do
       host_name: host_name,
       fqdn: fqdn,
       child_records:
-        Dns.Query.get_cname_record(fqdn)
+        Dns.Query.get_cname_records(fqdn)
         |> Dns.Query.resolves_to_already_seen?([options[:zone_root_domain]])
         |> case do
           true ->
             [
               fqdn
-              |> Dns.Query.get_cname_record()
+              |> Dns.Query.get_cname_records()
               |> Dns.Core.handle_record_payload(options)
             ]
 
@@ -1151,66 +1336,6 @@ defmodule Dns.ZoneTree do
     #   _ ->
     #     nil
     # end
-  end
-
-  def get_txt_zone_records(fqdn, options \\ []) do
-    IO.inspect(options, label: "### Options")
-
-    fqdn
-    |> Dns.Query.get_txt_records()
-    |> Dns.Core.handle_record_payload(options)
-
-    # |> Enum.with_index(fn rec, index ->
-    #   Map.merge(rec, %{id: index + 1, special_type: Dns.Core.classify_txt_record_type(rec)})
-    # end)
-    # |> Enum.map(fn rec -> construct_txt_record(rec) end)
-  end
-
-  def get_dmarc_record(fqdn, options \\ []) do
-    options = Keyword.put(options, :query_intent, :dmarc)
-
-    fqdn
-    |> Dns.Query.get_dmarc_record(options[:dmarc_subdomain_label])
-    |> Dns.Core.handle_record_payload(options)
-
-    # |> Enum.with_index(fn rec, index ->
-    #   Map.merge(rec, %{id: index + 1, special_type: "DMARC"})
-    # end)
-    # |> Enum.map(fn rec ->
-    #   construct_txt_record(rec, id_prefix: "dmarc-")
-    # end)
-  end
-
-  def get_dkim_records(fqdn, options \\ []) do
-    options = Keyword.put(options, :query_intent, :dkim)
-    IO.inspect(options, label: "Options")
-
-    fqdn
-    |> Dns.Query.get_dkim_records(
-      options[:dkim_subdomain_label],
-      options[:known_dkim_selector_list]
-    )
-    |> Dns.Core.handle_record_payload(options)
-
-    # |> Enum.map(fn
-    #   [head | []] ->
-    #     head
-    #     |> Map.merge(%{id: head.domain, special_type: "DKIM"})
-    #     |> construct_txt_record(id_prefix: "")
-
-    #   [head | tail] ->
-    #     case head.type do
-    #       :cname ->
-    #         resolve_cname_chain(parent_domain, head, tail)
-
-    #       _ ->
-    #         nil
-    #     end
-
-    #   [] ->
-    #     []
-    # end)
-    # |> Enum.filter(fn i -> not is_nil(i) end)
   end
 end
 ```
@@ -1338,6 +1463,32 @@ defmodule Dns.ZoneTree.MergeTrees do
 
   def compare_child_trees([tree1 | []], [tree2 | []]), do: compare_child_trees(tree1, tree2)
 
+  def compare_child_trees([
+        tree1,
+        %{
+          input: _,
+          domain: _,
+          host: _,
+          source: _,
+          fqdn: _,
+          tool: _
+        } = tree2
+      ]),
+      do: [tree1, tree2]
+
+  def compare_child_trees([
+        %{
+          input: _,
+          domain: _,
+          host: _,
+          source: _,
+          fqdn: _,
+          tool: _
+        } = tree1,
+        tree2
+      ]),
+      do: [tree1, tree2]
+
   def compare_child_trees(tree1, _tree2), do: tree1
 
   def merge_records(
@@ -1381,15 +1532,18 @@ x_zone_tree =
           dkim_subdomain_label: dkim_subdomain_label,
           known_dkim_selector_list: known_dkim_selector_list
         )
-        |> Enum.map(fn subdomain ->
-          Map.merge(subdomain, %{
-            child_records:
-              Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(subdomain.child_records)
-          })
-        end)
+        # |> Enum.map(fn subdomain ->
+        #   Map.merge(subdomain, %{
+        #     child_records: Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(subdomain.child_records)
+        #   })
+        # end)
       ]
       |> List.flatten()
   })
+```
+
+```elixir
+IO.inspect(x_zone_tree, label: "Final tree", limit: :infinity)
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
@@ -1673,10 +1827,6 @@ Kino.Mermaid.new(dns_zone_diagram)
 ```
 
 ## Audit summary and advice
-
-```elixir
-
-```
 
 ```elixir
 Kino.Markdown.new("""
