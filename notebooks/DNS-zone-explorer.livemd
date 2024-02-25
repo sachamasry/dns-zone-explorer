@@ -626,7 +626,7 @@ defmodule Dns.Core do
     DnsRecord.construct_dns_record(%{
       id: "MX-#{parsed_data.data}",
       type: record.type,
-      weight: 10,
+      weight: 20,
       name: fqdn,
       display_name: "MX #{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
@@ -671,7 +671,7 @@ defmodule Dns.Core do
     DnsRecord.construct_dns_record(%{
       id: id,
       type: record.type,
-      weight: 15,
+      weight: 10,
       name: fqdn,
       display_name: "#{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
@@ -704,7 +704,7 @@ defmodule Dns.Core do
     DnsRecord.construct_dns_record(%{
       id: "CNAME-#{record.domain}",
       type: record.type,
-      weight: 20,
+      weight: 18,
       name: fqdn,
       display_name: "#{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
@@ -1091,11 +1091,6 @@ defmodule Dns.ZoneTree do
       get_srv_zone_records(fqdn, options)
     ]
     |> Enum.reject(fn sublist -> sublist == [] end)
-
-    # |> List.flatten()
-    # |> IO.inspect(label: "### Zone tree construct, after flattening")
-
-    # |> Enum.sort_by(fn rec -> {rec.weight, rec.type, rec.name, rec.data} end)
   end
 
   def get_soa_zone_record(fqdn, options \\ []) do
@@ -1134,6 +1129,8 @@ defmodule Dns.ZoneTree do
       Map.merge(rec, %{
         domain: host,
         type: :subdomain,
+        specialised_type: nil,
+        weight: 15,
         host_labels:
           Dns.Core.get_host_name_without_domain(DomainName.new!(host), options[:zone_root_domain])
           |> Dns.Core.get_subdomain_labels()
@@ -1250,7 +1247,8 @@ defmodule Dns.ZoneTree do
 
     Map.merge(rec, %{
       host_name: host_name,
-      fqdn: fqdn,
+      name: fqdn,
+      data: "",
       child_records:
         Dns.Query.get_cname_records(fqdn)
         |> Dns.Query.resolves_to_already_seen?([options[:zone_root_domain]])
@@ -1408,7 +1406,8 @@ defmodule Q do
 
     Enum.map(sibling_nodes, fn node -> node end)
     |> List.flatten()
-    |> Enum.sort_by(fn rec -> rec.data end)
+    # |> Enum.sort_by(fn rec -> rec.data end)
+    |> Dns.ZoneTree.MergeTrees.sort_dns_records()
     |> Enum.with_index(fn rec, index ->
       Dns.Core.index_record_dispatcher(rec, index + 1)
     end)
@@ -1421,10 +1420,14 @@ defmodule Q do
     IO.inspect("==> Resolve chain: 3.1. sibling modes")
 
     Enum.map([current_node, next_node | tail_nodes], fn node -> node end)
+    # |> IO.inspect(label: "==-> Sibling node list")
     |> List.flatten()
-    |> Enum.sort_by(fn rec -> rec.data end)
+    # |> IO.inspect(label: "==--> Flattened Sibling node list")
+    # |> Enum.sort_by(fn record_list -> Dns.ZoneTree.MergeTrees.sort_dns_records(record_list) end)
+    |> Dns.ZoneTree.MergeTrees.sort_dns_records()
     |> Enum.with_index(fn rec, index ->
       Dns.Core.index_record_dispatcher(rec, index + 1)
+      |> IO.inspect(label: "==---> Sibling node list after sorting and indexing")
     end)
   end
 
@@ -1438,9 +1441,11 @@ defmodule Q do
       current_node.type not in [:a, :aaaa, :soa, :txt] ->
         current_node
         |> Map.merge(%{
-          child_records: [
-            resolve_chain(next_node, subsequent_nodes)
-          ]
+          child_records:
+            [
+              resolve_chain(next_node, subsequent_nodes)
+            ]
+            |> List.flatten()
         })
 
       true ->
@@ -1468,46 +1473,133 @@ Once two records are selected, the structures aren't compared in depth; only the
 
 ```elixir
 defmodule Dns.ZoneTree.MergeTrees do
-  def merge_trees(record_list) when is_list(record_list) do
-    group_dns_records_by_domain_type_data(record_list)
-    |> Enum.map(fn tree ->
-      case tree.child_records do
-        [] ->
-          tree
+  def merge_trees(record) when is_struct(record, DnsRecord), do: record
 
-        _ ->
-          Map.merge(tree, %{
-            child_records:
-              merge_trees(tree.child_records)
-              |> Enum.sort_by(fn record ->
-                {record.weight, record.type, record.name, record.data}
-              end)
-          })
-      end
+  def merge_trees(record_list) when is_list(record_list) do
+    IO.inspect("MERGE: 1. Grouping records")
+
+    group_dns_records_by_domain_type_data(record_list)
+    |> Enum.map(fn
+      %DnsRecord{} = tree ->
+        IO.inspect("MERGE: 1.1A. Iterate DNS record lists")
+        IO.inspect(tree, label: "1.1A: Tree contents")
+
+        case tree.child_records do
+          [] ->
+            tree
+
+          _ ->
+            IO.inspect("MERGE: 1.1A.1. Merging trees")
+
+            Map.merge(tree, %{
+              child_records:
+                merge_trees(tree.child_records)
+                |> List.flatten()
+                |> sort_dns_records()
+            })
+        end
+
+      [_head | _] = tree_list ->
+        IO.inspect("MERGE: 1.1B. Iterate through lists")
+        IO.inspect(length(tree_list), label: "1.1B: Tree list length")
+
+        Enum.map(tree_list, fn tree ->
+          case tree.child_records do
+            [] ->
+              tree
+
+            _ ->
+              IO.inspect("MERGE: 1.1B.1. Merging trees")
+
+              Map.merge(tree, %{
+                child_records:
+                  merge_trees(tree.child_records)
+                  |> List.flatten()
+                  |> sort_dns_records()
+              })
+          end
+        end)
+        |> sort_dns_records
     end)
   end
 
-  def group_dns_records_by_domain_type_data(record_list) do
+  def sort_dns_records(record_list) when is_list(record_list) do
+    Enum.sort_by(record_list, fn record ->
+      {record.weight, record.type, record.specialised_type, record.name, record.data}
+    end)
+  end
+
+  def group_dns_records_by_domain_type_data(record_list) when is_list(record_list) do
     record_list
-    |> Enum.group_by(fn record -> {record.name, record.type, record.structured_data} end)
-    |> Enum.map(fn {{_name, _type, _structured_data}, grouped_record_list} ->
-      compare_list_items_in_pairs(grouped_record_list, [])
+    |> IO.inspect(label: "*** Pre-grouping list")
+    |> Enum.group_by(fn
+      %DnsRecord{name: name, type: type, structured_data: structured_data} = _record ->
+        {name, type, structured_data}
+
+      %{type: :subdomain} = subdomain ->
+        {subdomain.name, subdomain.type}
+    end)
+    # |> IO.inspect(label: "### Grouped records")
+    |> Enum.map(fn
+      {{_name, _type, _structured_data}, grouped_record_list} ->
+        IO.inspect(grouped_record_list, label: "#### Grouped record list", limit: 10)
+        compare_list_items_in_pairs(grouped_record_list, [])
+
+      {{_name, _type}, subdomain_list} ->
+        IO.inspect(subdomain_list, label: "#### Grouped subdomain list", limit: 10)
+
+        Enum.map(subdomain_list, fn subdomain ->
+          # IO.inspect(subdomain, label: "##### Iterated-over subdomain")
+          IO.inspect(subdomain.child_records,
+            label: "##### Iterated-over subdomain child records"
+          )
+
+          Map.merge(subdomain, %{
+            child_records:
+              merge_trees(subdomain.child_records)
+              |> List.flatten()
+            # |> sort_dns_records()
+          })
+        end)
     end)
   end
 
   def compare_list_items_in_pairs([] = _tree_list, acc), do: acc
-  def compare_list_items_in_pairs([tree1 | []] = _tree_list, []), do: tree1
+  def compare_list_items_in_pairs([%DnsRecord{} = tree1 | []] = _tree_list, []), do: tree1
 
-  def compare_list_items_in_pairs([tree1 | []] = _tree_list, acc),
-    do: compare_child_trees(acc, tree1)
+  def compare_list_items_in_pairs([%DnsRecord{} = tree1 | []] = _tree_list, acc),
+    do:
+      IO.inspect("COMPARE: 3. Compare child trees, tree1 and accumulator") &&
+        compare_child_trees(acc, tree1)
 
-  def compare_list_items_in_pairs([tree1, tree2 | tail] = _tree_list, []) do
+  def compare_list_items_in_pairs(
+        [%DnsRecord{} = tree1, %DnsRecord{} = tree2 | tail] = _tree_list,
+        []
+      ) do
+    IO.inspect("COMPARE: 4. Compare child trees, tree1 and tree2")
     compare_list_items_in_pairs(tail, compare_child_trees(tree1, tree2))
   end
 
-  def compare_list_items_in_pairs([tree1 | tail] = _tree_list, acc) do
+  def compare_list_items_in_pairs([%DnsRecord{} = tree1 | tail] = _tree_list, acc) do
+    IO.inspect("COMPARE: 5. Compare child trees, tree1 and accumulator")
+    # compare_list_items_in_pairs(tail, [tree1 | acc])
     compare_list_items_in_pairs(tail, compare_child_trees(acc, tree1))
   end
+
+  def compare_list_items_in_pairs(
+        [%{type: :subdomain} = tree1 | tail] = _tree_list,
+        acc
+      ) do
+    IO.inspect("COMPARE: 6. Compare child trees, subdomain and accumulator")
+    # compare_list_items_in_pairs(tail, [tree1 | acc])
+    compare_list_items_in_pairs(tail, [tree1 | acc])
+  end
+
+  def compare_child_trees(%DnsRecord{} = tree1, record_list) when is_list(record_list),
+    do: [tree1 | record_list]
+
+  def compare_child_trees(record_list, %DnsRecord{} = tree2) when is_list(record_list),
+    do: [tree2 | record_list]
 
   def compare_child_trees(
         %DnsRecord{
@@ -1603,15 +1695,14 @@ x_zone_tree =
   |> Map.merge(%{
     zone_tree:
       [
-        # (Dns.ZoneTree.construct_dns_zone_tree(
-        #   verified_domain,
-        #   zone_root_domain: verified_domain,
-        #   parent_domain: verified_domain,
-        #   dmarc_subdomain_label: dmarc_subdomain_label,
-        #   dkim_subdomain_label: dkim_subdomain_label,
-        #   known_dkim_selector_list: known_dkim_selector_list
-        # )
-        # |> Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs()),
+        Dns.ZoneTree.construct_dns_zone_tree(
+          verified_domain,
+          zone_root_domain: verified_domain,
+          parent_domain: verified_domain,
+          dmarc_subdomain_label: dmarc_subdomain_label,
+          dkim_subdomain_label: dkim_subdomain_label,
+          known_dkim_selector_list: known_dkim_selector_list
+        ),
         Dns.ZoneTree.get_cname_zone_records(
           enumerated_subdomains,
           zone_root_domain: verified_domain,
@@ -1620,46 +1711,12 @@ x_zone_tree =
           dkim_subdomain_label: dkim_subdomain_label,
           known_dkim_selector_list: known_dkim_selector_list
         )
-        # |> Enum.map(fn subdomain ->
-        #   Map.merge(subdomain, %{
-        #     child_records: Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(subdomain.child_records)
-        #   })
-        # end)
       ]
       |> List.flatten()
+      |> Dns.ZoneTree.MergeTrees.merge_trees()
+      |> List.flatten()
+      |> Dns.ZoneTree.MergeTrees.sort_dns_records()
   })
-```
-
-```elixir
-{result, _} =
-  x_zone_tree.zone_tree
-  # |> List.pop_at(13)
-  # |> List.pop_at(12)
-  |> List.pop_at(3)
-
-# cond do
-# DomainName.equal?(result.fqdn, Map.get(List.first(result.child_records), :name)) -> true
-# true -> false
-# end
-
-result
-# |> Enum.map(fn subdomain ->
-# IO.inspect(subdomain)
-# Map.merge(result, %{
-# child_records: Dns.ZoneTree.MergeTrees.compare_list_items_in_pairs(result.child_records, [])
-# })
-
-# end)
-{result, _} =
-  result.child_records
-  |> List.pop_at(5)
-
-result.child_records
-|> Dns.ZoneTree.MergeTrees.merge_trees()
-```
-
-```elixir
-IO.inspect(x_zone_tree, label: "Final tree", limit: :infinity)
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
