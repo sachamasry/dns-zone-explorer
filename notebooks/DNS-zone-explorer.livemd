@@ -704,6 +704,7 @@ defmodule Dns.Core do
       name: record.name,
       display_name: "#{record.name}",
       inside_zone: is_subdomain_of_zone?(record.name, options[:zone_root_domain]),
+      depth: Keyword.get(options, :depth, 0),
       ttl: nil,
       data: "",
       structured_data: %{},
@@ -998,6 +999,7 @@ The domain name is not a standard DNS record (from our point of view), so we wil
 defmodule ZoneRootDomain do
   defstruct name: "",
             display_name: "",
+            depth: 0,
             registrar: "",
             nameservers: [],
             created_at: nil,
@@ -1016,6 +1018,7 @@ defmodule DnsRecord do
             name: nil,
             display_name: "",
             inside_zone: false,
+            depth: nil,
             weight: 0,
             type: nil,
             specialised_type: nil,
@@ -1032,6 +1035,7 @@ defmodule DnsRecord do
       name: Map.get(dns_record, :name, nil),
       display_name: Map.get(dns_record, :display_name, ""),
       inside_zone: dns_record.inside_zone,
+      depth: Map.get(dns_record, :depth, nil),
       weight: Map.get(dns_record, :weight, 0),
       type: dns_record.type,
       specialised_type: Map.get(dns_record, :specialised_type, nil),
@@ -1376,6 +1380,7 @@ zone_root_record =
   %ZoneRootDomain{
     name: DomainName.new!("magicpillsmovie.com"),
     display_name: "magicpillsmovie.com",
+    depth: 0,
     registrar: "GoDaddy.com, LLC",
     nameservers: [],
     created_at: ~N[2015-09-24 23:12:58],
@@ -1704,12 +1709,23 @@ end
 ```elixir
 defmodule Dns.ZoneTree.Subdomains do
   def find_subdomains(record_list, options \\ []) when is_list(record_list) do
+    IO.inspect("=> 0. Iterating over records, looking for subdomains")
+
     Enum.map(record_list, fn
       %{type: :subdomain} = subdomain ->
+        IO.inspect(subdomain.name, label: "=> Subdomain record under inspection")
+        IO.inspect(options[:depth], label: "# Depth passed in options")
+        IO.inspect(options, label: "~~~ Options passed in for next subdomain iteration")
+        IO.inspect(options[:depth] + 1, label: "# New depth")
         process_subdomain(subdomain, options)
 
       %DnsRecord{} = record ->
+        IO.inspect(record.name, label: "=> Non-subdomain record under inspection")
+        IO.inspect(options[:depth], label: "# Depth passed in options")
+        IO.inspect(options, label: "~~~ Options passed in for next record iteration")
+        IO.inspect(options[:depth] + 1, label: "# New depth")
         record
+        # Map.merge(record, %{depth: options[:depth] + 1})
     end)
   end
 
@@ -1730,13 +1746,17 @@ defmodule Dns.ZoneTree.Subdomains do
     {matching_record, remaining_child_records} =
       List.pop_at(subdomain.child_records, matching_record_index)
 
+    new_depth = options[:depth] + 1
+    IO.inspect(new_depth, label: "Next subdomain to start at new depth")
+
     matching_record
     |> Map.merge(%{
       specialised_type: :subdomain,
+      depth: new_depth,
       child_records:
         [remaining_child_records | matching_record.child_records]
         |> List.flatten()
-        |> find_subdomains()
+        |> find_subdomains(Keyword.put(options, :depth, new_depth))
     })
   end
 
@@ -1744,7 +1764,15 @@ defmodule Dns.ZoneTree.Subdomains do
     do:
       Dns.Core.construct_subdomain_record(
         subdomain,
-        options ++ [children: find_subdomains(subdomain.child_records)]
+        options
+        |> Keyword.put(:depth, options[:depth])
+        |> Keyword.put(
+          :children,
+          find_subdomains(
+            subdomain.child_records,
+            Keyword.put(options, :depth, options[:depth] + 1)
+          )
+        )
       )
 end
 ```
@@ -1753,6 +1781,7 @@ end
 x_zone_tree =
   zone_root_record
   |> Map.merge(%{
+    depth: 0,
     zone_tree:
       [
         Dns.ZoneTree.construct_dns_zone_tree(
@@ -1776,7 +1805,10 @@ x_zone_tree =
       |> Dns.ZoneTree.MergeTrees.merge_trees()
       |> List.flatten()
       |> Dns.ZoneTree.MergeTrees.sort_dns_records()
-      |> Dns.ZoneTree.Subdomains.find_subdomains(zone_root_domain: verified_domain)
+      |> Dns.ZoneTree.Subdomains.find_subdomains(
+        zone_root_domain: verified_domain,
+        depth: 0
+      )
   })
 ```
 
