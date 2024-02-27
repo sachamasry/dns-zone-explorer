@@ -436,11 +436,15 @@ defmodule Dns.Core do
         cond do
           Dns.Core.is_record_domain_dkim?(head_link.name) &&
               Dns.Core.is_record_payload_dkim?(List.last(tail_links).data) ->
-            Enum.map(record_chain, fn link -> Map.merge(link, %{specialised_type: :dkim}) end)
+            Enum.map(record_chain, fn link ->
+              Map.merge(link, %{specialised_type: :dkim, weight: 30})
+            end)
 
           Dns.Core.is_record_domain_dmarc?(head_link.name) &&
               Dns.Core.is_record_payload_dmarc?(List.last(tail_links).data) ->
-            Enum.map(record_chain, fn link -> Map.merge(link, %{specialised_type: :dmarc}) end)
+            Enum.map(record_chain, fn link ->
+              Map.merge(link, %{specialised_type: :dmarc, weight: 30})
+            end)
 
           true ->
             record_chain
@@ -686,6 +690,26 @@ defmodule Dns.Core do
   def index_a_record(record, index) when is_struct(record, DnsRecord) and is_number(index) do
     Map.merge(record, %{
       id: Enum.join([String.upcase(to_string(record.type)), index, record.name], "-")
+    })
+  end
+
+  def construct_subdomain_record(record, options \\ []) do
+    children = Keyword.get(options, :children, [])
+
+    DnsRecord.construct_dns_record(%{
+      id: "SUBDOMAIN-#{record.name}",
+      type: :virtual,
+      specialised_type: :subdomain,
+      weight: 12,
+      name: record.name,
+      display_name: "#{record.name}",
+      inside_zone: is_subdomain_of_zone?(record.name, options[:zone_root_domain]),
+      ttl: nil,
+      data: "",
+      structured_data: %{},
+      child_records: children,
+      query_tool: record.tool,
+      answer_source: record.source
     })
   end
 
@@ -1347,20 +1371,6 @@ end
 ```
 
 ```elixir
-fqdn =
-  "email.reply.magicpillsmovie.com"
-  |> DomainName.new!()
-
-Dns.ZoneTree.get_caa_zone_records(fqdn,
-  zone_root_domain: verified_domain,
-  parent_domain: verified_domain,
-  dmarc_subdomain_label: dmarc_subdomain_label,
-  dkim_subdomain_label: dkim_subdomain_label,
-  known_dkim_selector_list: known_dkim_selector_list
-)
-```
-
-```elixir
 # zone_root_record = Dns.ZoneTree.define_root_of_tree(verified_domain)
 zone_root_record =
   %ZoneRootDomain{
@@ -1692,6 +1702,54 @@ end
 ## Structuring subdomain records
 
 ```elixir
+defmodule Dns.ZoneTree.Subdomains do
+  def find_subdomains(record_list, options \\ []) when is_list(record_list) do
+    Enum.map(record_list, fn
+      %{type: :subdomain} = subdomain ->
+        process_subdomain(subdomain, options)
+
+      %DnsRecord{} = record ->
+        record
+    end)
+  end
+
+  def process_subdomain(subdomain, options \\ []) do
+    subdomain
+    |> find_matching_cname_record?()
+    |> construct_structured_subdomain_record(subdomain, options)
+  end
+
+  def find_matching_cname_record?(subdomain) do
+    Enum.find_index(subdomain.child_records, fn record ->
+      record.type == :cname and DomainName.equal?(record.name, subdomain.name)
+    end)
+  end
+
+  def construct_structured_subdomain_record(matching_record_index, subdomain, options)
+      when is_integer(matching_record_index) do
+    {matching_record, remaining_child_records} =
+      List.pop_at(subdomain.child_records, matching_record_index)
+
+    matching_record
+    |> Map.merge(%{
+      specialised_type: :subdomain,
+      child_records:
+        [remaining_child_records | matching_record.child_records]
+        |> List.flatten()
+        |> find_subdomains()
+    })
+  end
+
+  def construct_structured_subdomain_record(_, subdomain, options),
+    do:
+      Dns.Core.construct_subdomain_record(
+        subdomain,
+        options ++ [children: find_subdomains(subdomain.child_records)]
+      )
+end
+```
+
+```elixir
 x_zone_tree =
   zone_root_record
   |> Map.merge(%{
@@ -1718,56 +1776,8 @@ x_zone_tree =
       |> Dns.ZoneTree.MergeTrees.merge_trees()
       |> List.flatten()
       |> Dns.ZoneTree.MergeTrees.sort_dns_records()
+      |> Dns.ZoneTree.Subdomains.find_subdomains(zone_root_domain: verified_domain)
   })
-```
-
-```elixir
-defmodule Dns.ZoneTree.Subdomains do
-  def find_subdomains(record_list) when is_list(record_list) do
-    Enum.map(record_list, fn
-      %{type: :subdomain} = subdomain ->
-        process_subdomain(subdomain)
-
-      %DnsRecord{} = record ->
-        record
-    end)
-  end
-
-  def process_subdomain(subdomain) do
-    IO.inspect(subdomain.name, label: "==> Subdomain")
-
-    subdomain
-    |> find_matching_cname_record?()
-    |> IO.inspect(label: "Matching CNAME record found at")
-
-    # |> construct_structured_subdomain_record(subdomain)
-
-    find_subdomains(subdomain.child_records)
-  end
-
-  def find_matching_cname_record?(subdomain) do
-    IO.inspect(subdomain.name, label: "===> Subdomain fqdn")
-    IO.inspect(length(subdomain.child_records), label: "===> Subdomain no. of child records")
-
-    Enum.find(subdomain.child_records, fn record ->
-      IO.inspect(record.name, label: "Child record name")
-      record.type == :cname and DomainName.equal?(record.name, subdomain.name)
-    end)
-    |> IO.inspect(label: "Found at")
-  end
-
-  def construct_structured_subdomain_record(%DnsRecord{} = matching_cname_record, _subdomain) do
-    IO.inspect("1. Constructing subdomain from child CNAME")
-
-    matching_cname_record
-    |> Map.merge(%{specialised_type: :subdomain})
-  end
-
-  def construct_structured_subdomain_record(_, subdomain), do: subdomain
-end
-
-x_zone_tree.zone_tree
-|> Dns.ZoneTree.Subdomains.find_subdomains()
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.

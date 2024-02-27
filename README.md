@@ -6,11 +6,8 @@ anomalies or vulnerabilities.
 
 ## To do
 
-- Provide subdomains a record structure and type
-- Calculate tree depth and store inside record
-- Determine a scheme by which to present subdomains and the records emanating from them
-  - Classify subdomains
-  - Handle their subtrees
+- Calculate tree depth and store inside record?
+- Implement dedicated tree builder functionality
 - Create a HTML, text-like presentation of the zone tree
   - Allow expansion of the branches of the tree
   - Present all interesting record information
