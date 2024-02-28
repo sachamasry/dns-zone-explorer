@@ -6,12 +6,11 @@ anomalies or vulnerabilities.
 
 ## To do
 
-- Calculate tree depth and store inside record?
 - Implement dedicated tree builder functionality
-- Create a HTML, text-like presentation of the zone tree
+- Create a flat record presentation, which an administrator could (almost) use to reconstruct the zone
+- Create an HTML, text-like presentation of the zone tree
   - Allow expansion of the branches of the tree
   - Present all interesting record information
-- Create a flat record structure, which an administrator would use to reconstruct the zone
 - Create a fully visual, tree-like graphic presentation of the tree, using Mermaid.js
 - Clean up Livebook code
 - Fully document code, write up decisions taken, with their reasons

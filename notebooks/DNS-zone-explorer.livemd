@@ -1724,7 +1724,17 @@ defmodule Dns.ZoneTree.Subdomains do
         IO.inspect(options[:depth], label: "# Depth passed in options")
         IO.inspect(options, label: "~~~ Options passed in for next record iteration")
         IO.inspect(options[:depth] + 1, label: "# New depth")
+
         record
+        |> Map.put(:depth, options[:depth] + 1)
+        |> Map.put(
+          :child_records,
+          find_subdomains(
+            record.child_records,
+            Keyword.put(options, :depth, options[:depth] + 1)
+          )
+        )
+
         # Map.merge(record, %{depth: options[:depth] + 1})
     end)
   end
@@ -1765,7 +1775,7 @@ defmodule Dns.ZoneTree.Subdomains do
       Dns.Core.construct_subdomain_record(
         subdomain,
         options
-        |> Keyword.put(:depth, options[:depth])
+        |> Keyword.put(:depth, options[:depth] + 1)
         |> Keyword.put(
           :children,
           find_subdomains(
