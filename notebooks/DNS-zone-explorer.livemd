@@ -1375,23 +1375,6 @@ end
 ```
 
 ```elixir
-# zone_root_record = Dns.ZoneTree.define_root_of_tree(verified_domain)
-zone_root_record =
-  %ZoneRootDomain{
-    name: DomainName.new!("magicpillsmovie.com"),
-    display_name: "magicpillsmovie.com",
-    depth: 0,
-    registrar: "GoDaddy.com, LLC",
-    nameservers: [],
-    created_at: ~N[2015-09-24 23:12:58],
-    updated_at: ~N[2023-09-25 10:45:43],
-    expires_at: ~N[2024-09-25 04:12:58],
-    query_tool: "whois: Elixir WHOIS client and parser",
-    zone_tree: []
-  }
-```
-
-```elixir
 defmodule Q do
   # The next children list is empty, return current record and end
   def resolve_chain(current_node, [] = _subsequent_nodes)
@@ -1787,39 +1770,41 @@ defmodule Dns.ZoneTree.Subdomains do
 end
 ```
 
+## Constructing the zone tree
+
+```elixir
+defmodule Dns.ZoneTree.Construct do
+  def construct_zone_tree(subdomain_list, options \\ []) when is_list(subdomain_list) do
+    starting_depth = Keyword.get(options, :depth, 0)
+
+    Dns.ZoneTree.define_root_of_tree(options[:zone_root_domain])
+    |> Map.merge(%{
+      depth: starting_depth,
+      zone_tree:
+        [
+          Dns.ZoneTree.construct_dns_zone_tree(options[:zone_root_domain], options),
+          Dns.ZoneTree.get_cname_zone_records(subdomain_list, options)
+        ]
+        |> List.flatten()
+        |> Dns.ZoneTree.MergeTrees.merge_trees()
+        |> List.flatten()
+        |> Dns.ZoneTree.MergeTrees.sort_dns_records()
+        |> Dns.ZoneTree.Subdomains.find_subdomains(Keyword.put(options, :depth, starting_depth))
+    })
+  end
+end
+```
+
 ```elixir
 x_zone_tree =
-  zone_root_record
-  |> Map.merge(%{
-    depth: 0,
-    zone_tree:
-      [
-        Dns.ZoneTree.construct_dns_zone_tree(
-          verified_domain,
-          zone_root_domain: verified_domain,
-          parent_domain: verified_domain,
-          dmarc_subdomain_label: dmarc_subdomain_label,
-          dkim_subdomain_label: dkim_subdomain_label,
-          known_dkim_selector_list: known_dkim_selector_list
-        ),
-        Dns.ZoneTree.get_cname_zone_records(
-          enumerated_subdomains,
-          zone_root_domain: verified_domain,
-          parent_domain: verified_domain,
-          dmarc_subdomain_label: dmarc_subdomain_label,
-          dkim_subdomain_label: dkim_subdomain_label,
-          known_dkim_selector_list: known_dkim_selector_list
-        )
-      ]
-      |> List.flatten()
-      |> Dns.ZoneTree.MergeTrees.merge_trees()
-      |> List.flatten()
-      |> Dns.ZoneTree.MergeTrees.sort_dns_records()
-      |> Dns.ZoneTree.Subdomains.find_subdomains(
-        zone_root_domain: verified_domain,
-        depth: 0
-      )
-  })
+  Dns.ZoneTree.Construct.construct_zone_tree(enumerated_subdomains,
+    zone_root_domain: verified_domain,
+    parent_domain: verified_domain,
+    dmarc_subdomain_label: dmarc_subdomain_label,
+    dkim_subdomain_label: dkim_subdomain_label,
+    known_dkim_selector_list: known_dkim_selector_list,
+    depth: 0
+  )
 ```
 
 Reaching in to each map, we can take out the value for each `host` key, returning a simple list of strings.
