@@ -6,7 +6,6 @@ anomalies or vulnerabilities.
 
 ## To do
 
-- Create a flat record presentation, which an administrator could (almost) use to reconstruct the zone
 - Create an HTML, text-like presentation of the zone tree
   - Allow expansion of the branches of the tree
   - Present all interesting record information
