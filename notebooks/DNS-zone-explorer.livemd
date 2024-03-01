@@ -760,7 +760,7 @@ defmodule Dns.Core do
       display_name: display_name_construction,
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
-      data: Enum.join(record.data, " || "),
+      data: Enum.join(record.data, " "),
       structured_data: %{raw_data: record.data},
       query_tool: record.query_tool,
       answer_source: record.answer_source
@@ -1608,46 +1608,97 @@ Kino.Markdown.new(Dns.Visualisation.ZoneRecordTable.construct_dns_zone_table(zon
 defmodule Dns.Visualisation.ZoneRecordTree do
   def construct_html_zone_tree(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
     """
-    <ul style="list-style-type: none;" class="record-depth-0">
-      <li>
-        <table>
-          <tbody>
-            <tr>
-              <th>Domain name</th>
-              <th>Expiry date</th>
-            </tr>
-            <tr>
-              <td>#{zone_tree.display_name}</td>
-              <td>#{zone_tree.expires_at}</td>
-            </tr>
-          </tbody>
-        </table>
-      </li>
-      <li>
+    <figure>
+      <div class="record-list-display">
+        <ul class="record-list-display__list record-depth-0">
+          <li>
+            <table>
+              <tbody>
+                <tr>
+                  <th>Domain name</th>
+                  <th>Expiry date</th>
+                </tr>
+                <tr>
+                  <td>#{zone_tree.display_name}</td>
+                  <td>#{zone_tree.expires_at}</td>
+                </tr>
+              </tbody>
+            </table>
+          </li>
+          <li>
     """ <>
       format_record_list(zone_tree.zone_tree) <>
       """
-        </li>
-      </ul>
+            </li>
+          </ul>
+        </div>
+        <figcaption>Figure 2. Hierarchical table of #{zone_tree.display_name} zone records</figcaption>
+      </figure>
       """ <>
-      styles()
+      styles(zone_tree.display_name)
   end
 
-  def styles() do
+  def styles(domain_name) do
     """
     <style>
-    .record-depth-0, .record-depth-1 { border-top: 1px solid white; }
-    .record-depth-0 { background-color: #fff2eb; }
-    .record-depth-1 { background-color: #ffe5d6; }
-    .record-depth-2 { background-color: #ffd8c2; }
-    .record-depth-3 { background-color: #ffcbad; }
-    .record-depth-4 { background-color: #ffbe98; }
-    .record-depth-5 { background-color: #ffb185; }
-    .record-depth-6 { background-color: #ffa570; }
-    .record-depth-7 { background-color: #ff985c; }
-    .record-depth-8 { background-color: #ff8b47; }
-    .record-depth-9 { background-color: #ff7e33; }
-    .record-depth-10 { background-color: #ff711f; }
+    :root {
+      --colour-0: #fff2eb; 
+      --colour-1: #ffe5d6;
+      --colour-2: #ffd8c2;
+      --colour-3: #ffcbad;
+      --colour-4: #ffbe98;
+      --colour-5: #ffb185;
+      --colour-6: #ffa570;
+      --colour-7: #ff985c;
+      --colour-8: #ff8b47;
+      --colour-9: #ff7e33;
+      --colour-10: #ff711f;
+    }
+    .record-list-display {
+      box-shadow: 0 0 25px -5px #0000001a, 0 0 10px -5px #0000000a;
+      min-width: 100%;
+      width: fit-content; 
+    }
+    .record-list-display ul { list-style-type: none; }
+    .record-list-display__list { border-radius: 0.5rem; }
+    .record-list-display ul table {  }
+    .record-list-display ul table th,
+    .record-list-display ul table td { 
+      --tw-text-opacity: 1;
+      color: rgb(97 117 138 / var(--tw-text-opacity));
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      padding: 0.75rem 1.5rem;
+    }
+    .record-name {
+      width: #{domain_name |> to_string() |> String.length() |> Kernel.*(1.6) |> ceil()}ex;
+    }
+    .record-ttl { width: 10ex}
+    .record-class { width: 6ex}
+    .record-type { width: 8ex}
+    .record-specialisation {
+      color: #222;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    .record-data {
+      max-width: 75ex;
+     }
+    .record-name, .record-data { overflow-wrap: anywhere; }
+    .record-depth-0, .record-depth-1, .record-depth-2, 
+    .record-depth-3, .record-depth-4, .record-depth-5,
+    .record-depth-6, .record-depth-7, .record-depth-8,
+    .record-depth-9, .record-depth-10 { border-top: 1px solid white; }
+    .record-depth-0 { border-top: 3px solid var(--colour-0); }
+    .record-depth-1 { border-top: 1px solid var(--colour-1); }
+    .record-depth-2 { border-top: 1px solid var(--colour-2); }
+    .record-depth-3 { border-top: 1px dotted var(--colour-3); }
+    .record-depth-4 { border-top: 1px dotted var(--colour-4); }
+    .record-depth-5 { border-top: 1px dotted var(--colour-5); }
+    .record-depth-6 { border-top: 1px dotted var(--colour-6); }
+    .record-depth-7 { border-top: 1px dotted var(--colour-7); }
+    .record-depth-8 { border-top: 1px dotted var(--colour-8); }
+    .record-depth-9 { border-top: 1px dotted var(--colour-9); }
+    .record-depth-10 { border-top: 1px dotted var(--colour-10); }
     </style>
     """
   end
@@ -1656,15 +1707,17 @@ defmodule Dns.Visualisation.ZoneRecordTree do
     tree
     |> Enum.map(fn %DnsRecord{} = record ->
       """
-      <ul style="list-style-type: none;" class="record-depth-#{record.depth}">
+      <ul class="record-depth-#{record.depth}">
         <table>
           <tbody>
             <tr>
-              <td>#{record.name}</td>
-              <td>#{record.ttl}</td>
-              <td><span>#{record.class |> to_string() |> String.upcase()}</span></td>
-              <td>#{record.type |> to_string() |> String.upcase()}</td>
-              <td>#{record.data}</td>
+              <td class="record-name">#{record.name}</td>
+              <td class="record-ttl">#{record.ttl}</td>
+              <td class="record-class">#{record.class |> to_string() |> String.upcase()}</td>
+              <td class="record-type">#{record.type |> to_string() |> String.upcase()}#{if record.specialised_type != nil do
+        "<br /><span class=\"record-specialisation\">" <> String.upcase(to_string(record.specialised_type)) <> "</span>"
+      end}</td>
+              <td class="record-data">#{record.data}</td>
             </tr>
           </tbody>
         </table>
