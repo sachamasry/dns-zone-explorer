@@ -990,6 +990,7 @@ defmodule DnsRecord do
             depth: nil,
             weight: 0,
             type: nil,
+            class: :in,
             specialised_type: nil,
             data: "",
             structured_data: %{},
@@ -1007,6 +1008,7 @@ defmodule DnsRecord do
       depth: Map.get(dns_record, :depth, nil),
       weight: Map.get(dns_record, :weight, 0),
       type: dns_record.type,
+      class: Map.get(dns_record, :class, :in),
       specialised_type: Map.get(dns_record, :specialised_type, nil),
       data: Map.get(dns_record, :data),
       structured_data: Map.get(dns_record, :structured_data, %{}),
@@ -1569,7 +1571,7 @@ end
 ## DNS record list
 
 ```elixir
-defmodule Dns.ZoneRecordTable do
+defmodule Dns.Visualisation.ZoneRecordTable do
   def construct_dns_zone_table(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
     dns_zone_table_header() <>
       (zone_tree
@@ -1579,15 +1581,15 @@ defmodule Dns.ZoneRecordTable do
 
   def dns_zone_table_header() do
     """
-    | Name |  TTL | Type | Value |
-    | :--- | ---: | :--- | :---  | 
+    | Name |  TTL | Class | Type | Value |
+    | :--- | ---: | :---  | :--- | :---  | 
     """
   end
 
-  def construct_dns_table_records(dns_zone_tree) do
-    dns_zone_tree
+  def construct_dns_table_records(zone_tree) do
+    zone_tree
     |> Enum.map(fn rec ->
-      "| #{rec.name} | #{rec.ttl} | #{String.upcase(Kernel.to_string(rec.type))} | #{rec.data} |"
+      "| #{rec.name} | #{rec.ttl} | #{String.upcase(Kernel.to_string(rec.class))} | #{String.upcase(Kernel.to_string(rec.type))} | #{rec.data} |"
     end)
     |> Enum.join("\n")
   end
@@ -1597,7 +1599,96 @@ end
 <!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
-Kino.Markdown.new(Dns.ZoneRecordTable.construct_dns_zone_table(zone_tree))
+Kino.Markdown.new(Dns.Visualisation.ZoneRecordTable.construct_dns_zone_table(zone_tree))
+```
+
+## Displaying a text-based tree of the zone
+
+```elixir
+defmodule Dns.Visualisation.ZoneRecordTree do
+  def construct_html_zone_tree(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
+    """
+    <ul style="list-style-type: none;" class="record-depth-0">
+      <li>
+        <table>
+          <tbody>
+            <tr>
+              <th>Domain name</th>
+              <th>Expiry date</th>
+            </tr>
+            <tr>
+              <td>#{zone_tree.display_name}</td>
+              <td>#{zone_tree.expires_at}</td>
+            </tr>
+          </tbody>
+        </table>
+      </li>
+      <li>
+    """ <>
+      format_record_list(zone_tree.zone_tree) <>
+      """
+        </li>
+      </ul>
+      """ <>
+      styles()
+  end
+
+  def styles() do
+    """
+    <style>
+    .record-depth-0, .record-depth-1 { border-top: 1px solid white; }
+    .record-depth-0 { background-color: #fff2eb; }
+    .record-depth-1 { background-color: #ffe5d6; }
+    .record-depth-2 { background-color: #ffd8c2; }
+    .record-depth-3 { background-color: #ffcbad; }
+    .record-depth-4 { background-color: #ffbe98; }
+    .record-depth-5 { background-color: #ffb185; }
+    .record-depth-6 { background-color: #ffa570; }
+    .record-depth-7 { background-color: #ff985c; }
+    .record-depth-8 { background-color: #ff8b47; }
+    .record-depth-9 { background-color: #ff7e33; }
+    .record-depth-10 { background-color: #ff711f; }
+    </style>
+    """
+  end
+
+  def format_record_list(tree) when is_list(tree) do
+    tree
+    |> Enum.map(fn %DnsRecord{} = record ->
+      """
+      <ul style="list-style-type: none;" class="record-depth-#{record.depth}">
+        <table>
+          <tbody>
+            <tr>
+              <td>#{record.name}</td>
+              <td>#{record.ttl}</td>
+              <td><span>#{record.class |> to_string() |> String.upcase()}</span></td>
+              <td>#{record.type |> to_string() |> String.upcase()}</td>
+              <td>#{record.data}</td>
+            </tr>
+          </tbody>
+        </table>
+      """ <>
+        create_nested_record_level(record.child_records) <>
+        """
+        </ul>
+        """
+    end)
+    |> Enum.join("\n")
+  end
+
+  def create_nested_record_level([]), do: ""
+
+  def create_nested_record_level(subtree) when is_list(subtree) do
+    format_record_list(subtree)
+  end
+end
+
+records = Dns.Visualisation.ZoneRecordTree.format_record_list(zone_tree.zone_tree)
+```
+
+```elixir
+Kino.HTML.new(Dns.Visualisation.ZoneRecordTree.construct_html_zone_tree(zone_tree))
 ```
 
 ## Visualising the DNS zone

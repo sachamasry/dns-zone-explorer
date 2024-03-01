@@ -6,9 +6,10 @@ anomalies or vulnerabilities.
 
 ## To do
 
-- Create an HTML, text-like presentation of the zone tree
+- HTML record presentation
   - Allow expansion of the branches of the tree
   - Present all interesting record information
+  - Style display to ensure easy readability
 - Create a fully visual, tree-like graphic presentation of the tree, using Mermaid.js
 - Clean up Livebook code
 - Fully document code, write up decisions taken, with their reasons
