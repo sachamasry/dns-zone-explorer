@@ -1668,13 +1668,10 @@ defmodule Dns.Visualisation.ZoneRecordTree do
         <figcaption class="figure-caption">Figure 2. Hierarchical table of #{zone_tree.display_name} zone records</figcaption>
       </figure>
       """ <>
-      styles(
-        zone_tree.display_name,
-        @max_depth
-      )
+      styles()
   end
 
-  def styles(_domain_name, _max_depth) do
+  def styles(options \\ []) do
     """
     <style>
     :root {
@@ -1694,10 +1691,16 @@ defmodule Dns.Visualisation.ZoneRecordTree do
       --record-ttl-width: 8ch;
       --record-class-width: 5ch;
       --record-type-width: 6ch;
+      --heading-text-opacity: 0.95;
+      --out-of-zone-bg-colour: color-mix(in srgb, var(--primary-colour) 7%, white);
     }
-    .figure-caption { margin: 1.5rem 0; }
+    .figure-caption { 
+      color: rgb(97 117 138 / var(--heading-text-opacity));
+      margin: 1.5rem 0;
+     }
     .record-list-display {
-      border: 1px solid var(--colour-0);
+      border: 1px solid color-mix(in srgb, var(--primary-colour) 70%, white 0%);
+      border-radius: 0.5rem;
       box-shadow: 0 0 25px -5px #0000001a, 0 0 10px -5px #0000000a;
       min-width: 100%;
       padding-right: 2.5rem;
@@ -1713,12 +1716,13 @@ defmodule Dns.Visualisation.ZoneRecordTree do
     .record-list-display ul table th,
     .record-list-display ul table td { 
       --tw-text-opacity: 1;
-      color: rgb(97 117 138 / var(--tw-text-opacity));
+      color: rgb(97 117 138 / var(--heading-text-opacity));
       font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
       padding: 0.75rem 1rem;
     }
     .domain-name-infomation__headers { vertical-align: bottom; }
     .iso-date { width: 10ch; }
+    .out-of-zone { background: var(--out-of-zone-bg-colour);}
     .record-name {
       
     }
@@ -1757,10 +1761,10 @@ defmodule Dns.Visualisation.ZoneRecordTree do
     tree
     |> Enum.map(fn %DnsRecord{} = record ->
       """
-      <ul class="record-depth-#{record.depth}" style="padding-inline-start: var(--indentation-increment);">
+      <ul class="record-depth-#{record.depth} #{if not record.inside_zone, do: ~c"out-of-zone"}" style="padding-inline-start: var(--indentation-increment);">
         <table>
           <tbody>
-            <tr>
+            <tr class="">
               <td class="record-name" style="width: calc(#{@domain_name_length}ch - calc(#{record.depth} * calc(var(--indentation-increment) * 1)));">#{record.name}</td>
               <td class="record-ttl">#{record.ttl}</td>
               <td class="record-class">#{record.class |> to_string() |> String.upcase()}</td>
