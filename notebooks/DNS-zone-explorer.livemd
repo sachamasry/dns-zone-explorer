@@ -1591,88 +1591,7 @@ end
 ## DNS record list
 
 ```elixir
-defmodule Dns.Visualisation.ZoneRecordTable do
-  def construct_dns_zone_table(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
-    dns_zone_table_header() <>
-      (zone_tree
-       |> Dns.ZoneTree.RecordList.get_flattened_zone_record_list()
-       |> construct_dns_table_records)
-  end
-
-  def dns_zone_table_header() do
-    """
-    | Name |  TTL | Class | Type | Value |
-    | :--- | ---: | :---  | :--- | :---  | 
-    """
-  end
-
-  def construct_dns_table_records(zone_tree) do
-    zone_tree
-    |> Enum.map(fn rec ->
-      "| #{rec.name} | #{rec.ttl} | #{String.upcase(Kernel.to_string(rec.class))} | #{String.upcase(Kernel.to_string(rec.type))} | #{rec.data} |"
-    end)
-    |> Enum.join("\n")
-  end
-end
-```
-
-<!-- livebook:{"reevaluate_automatically":true} -->
-
-```elixir
-Kino.Markdown.new(Dns.Visualisation.ZoneRecordTable.construct_dns_zone_table(zone_tree))
-```
-
-## Displaying a text-based tree of the zone
-
-```elixir
-defmodule Dns.Visualisation.ZoneRecordTree do
-  @iso_date_format_string "%Y-%m-%d"
-  @human_readable_date_format_string "%d %B %Y"
-  @domain_name_length zone_tree.name
-                      |> DomainName.name()
-                      |> String.length()
-                      |> Kernel.*(1.8)
-                      |> ceil()
-  @max_depth Dns.ZoneTree.Height.calculate_tree_height(zone_tree.zone_tree)
-
-  def construct_html_zone_tree(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
-    """
-    <figure>
-      <div class="record-list-display">
-        <ul class="record-list-display__list record-depth-0">
-          <li>
-            <table>
-              <tbody>
-                <tr class="domain-name-infomation__headers">
-                  <th>Domain name</th>
-                  <th>Domain registrar</th>
-                  <th class="iso-date">Initial registration date</th>
-                  <th class="iso-date">Last update date</th>
-                  <th class="iso-date">Expiry date</th>
-                </tr>
-                <tr>
-                  <td style="width: #{@domain_name_length}ch;">#{zone_tree.display_name}</td>
-                  <td style="width: calc(calc(calc(4rem + var(--record-ttl-width)) + var(--record-class-width)) + var(--record-type-width))">#{zone_tree.registrar}</td>
-                  <td>#{zone_tree.created_at |> Calendar.strftime(@iso_date_format_string)}</td>
-                  <td>#{zone_tree.updated_at |> Calendar.strftime(@iso_date_format_string)}</td>
-                  <td>#{zone_tree.expires_at |> Calendar.strftime(@iso_date_format_string)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </li>
-          <li>
-    """ <>
-      format_record_list(zone_tree.zone_tree) <>
-      """
-            </li>
-          </ul>
-        </div>
-        <figcaption class="figure-caption">Figure 2. Hierarchical table of <span class="domain-name-display">#{zone_tree.display_name}</span> zone records, queried on #{Calendar.strftime(zone_tree.queried_at, "%d") |> String.replace("0", "")} #{Calendar.strftime(zone_tree.queried_at, "%B %Y")}</figcaption>
-      </figure>
-      """ <>
-      styles()
-  end
-
+defmodule Dns.Visualisation.CSS do
   def styles(options \\ []) do
     """
     <style>
@@ -1767,6 +1686,139 @@ defmodule Dns.Visualisation.ZoneRecordTree do
     </style>
     """
   end
+end
+```
+
+```elixir
+defmodule Dns.Visualisation.ZoneRecordTable do
+  def construct_html_zone_table(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
+    """
+    <figure>
+    <div class="record-list-display">
+      <table>
+        <tbody>
+          <tr class="domain-name-infomation__headers">
+            <th>Name</th>
+            <th>TTL</th>
+            <th class="iso-date">Class</th>
+            <th class="iso-date">Type</th>
+            <th class="iso-date">Value</th>
+          </tr>
+    """ <>
+      format_record_list(zone_tree.zone_tree) <>
+      """
+          </tbody>
+          </table>
+        </div>
+        <figcaption class="figure-caption">Figure 1. Flat record table of <span class="domain-name-display">#{zone_tree.display_name}</span> zone records, queried on #{Calendar.strftime(zone_tree.queried_at, "%d") |> String.replace("0", "")} #{Calendar.strftime(zone_tree.queried_at, "%B %Y")}</figcaption>
+      </figure>
+      """ <>
+      Dns.Visualisation.CSS.styles()
+  end
+
+  def format_record_list(tree) when is_list(tree) do
+    tree
+    |> Enum.map(fn %DnsRecord{} = record ->
+      """
+            <tr class="record">
+              <td class="record-name">#{record.name}</td>
+              <td class="record-ttl">#{record.ttl}</td>
+              <td class="record-class">#{record.class |> to_string() |> String.upcase()}<br /></td>
+              <td class="record-type">#{record.type |> to_string() |> String.upcase()}<br />#{if record.specialised_type != nil do
+        "<span class=\"record-specialisation\">" <> String.upcase(to_string(record.specialised_type)) <> "</span>"
+      end}</td>
+              <td class="record-data">#{record.data}</td>
+            </tr>
+      """
+    end)
+    |> Enum.join("\n")
+  end
+
+  # TO DEPRECATE
+  def construct_dns_zone_table(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
+    dns_zone_table_header() <>
+      (zone_tree
+       |> Dns.ZoneTree.RecordList.get_flattened_zone_record_list()
+       |> construct_dns_table_records)
+  end
+
+  def dns_zone_table_header() do
+    """
+    | Name |  TTL | Class | Type | Value |
+    | :--- | ---: | :---  | :--- | :---  | 
+    """
+  end
+
+  def construct_dns_table_records(zone_tree) do
+    zone_tree
+    |> Enum.map(fn rec ->
+      "| #{rec.name} | #{rec.ttl} | #{String.upcase(Kernel.to_string(rec.class))} | #{String.upcase(Kernel.to_string(rec.type))} | #{rec.data} |"
+    end)
+    |> Enum.join("\n")
+  end
+end
+```
+
+```elixir
+Kino.HTML.new(Dns.Visualisation.ZoneRecordTable.construct_html_zone_table(zone_tree))
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+Kino.Markdown.new(Dns.Visualisation.ZoneRecordTable.construct_dns_zone_table(zone_tree))
+```
+
+## Displaying a text-based tree of the zone
+
+```elixir
+defmodule Dns.Visualisation.ZoneRecordTree do
+  @iso_date_format_string "%Y-%m-%d"
+  # @human_readable_date_format_string "%d %B %Y"
+  @domain_name_length zone_tree.name
+                      |> DomainName.name()
+                      |> String.length()
+                      |> Kernel.*(1.8)
+                      |> ceil()
+  # @max_depth Dns.ZoneTree.Height.calculate_tree_height(zone_tree.zone_tree)
+
+  def construct_html_zone_tree(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
+    """
+    <figure>
+      <div class="record-list-display">
+        <ul class="record-list-display__list record-depth-0">
+          <li>
+            <table>
+              <tbody>
+                <tr class="domain-name-infomation__headers">
+                  <th>Domain name</th>
+                  <th>Domain registrar</th>
+                  <th class="iso-date">Initial registration date</th>
+                  <th class="iso-date">Last update date</th>
+                  <th class="iso-date">Expiry date</th>
+                </tr>
+                <tr>
+                  <td style="width: #{@domain_name_length}ch;">#{zone_tree.display_name}</td>
+                  <td style="width: calc(calc(calc(4rem + var(--record-ttl-width)) + var(--record-class-width)) + var(--record-type-width))">#{zone_tree.registrar}</td>
+                  <td>#{zone_tree.created_at |> Calendar.strftime(@iso_date_format_string)}</td>
+                  <td>#{zone_tree.updated_at |> Calendar.strftime(@iso_date_format_string)}</td>
+                  <td>#{zone_tree.expires_at |> Calendar.strftime(@iso_date_format_string)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </li>
+          <li>
+    """ <>
+      format_record_list(zone_tree.zone_tree) <>
+      """
+            </li>
+          </ul>
+        </div>
+        <figcaption class="figure-caption">Figure 2. Hierarchical table of <span class="domain-name-display">#{zone_tree.display_name}</span> zone records, queried on #{Calendar.strftime(zone_tree.queried_at, "%d") |> String.replace("0", "")} #{Calendar.strftime(zone_tree.queried_at, "%B %Y")}</figcaption>
+      </figure>
+      """ <>
+      Dns.Visualisation.CSS.styles()
+  end
 
   def format_record_list(tree) when is_list(tree) do
     tree
@@ -1801,8 +1853,6 @@ defmodule Dns.Visualisation.ZoneRecordTree do
     format_record_list(subtree)
   end
 end
-
-records = Dns.Visualisation.ZoneRecordTree.format_record_list(zone_tree.zone_tree)
 ```
 
 ```elixir

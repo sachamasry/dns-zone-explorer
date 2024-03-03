@@ -7,7 +7,7 @@ anomalies or vulnerabilities.
 ## To do
 
 - HTML record presentation
-  - Refactor HTML building and styling for reuse
+  - Clean up DNS record table presentation and styling
 - Create a fully visual, tree-like graphic presentation of the tree, using Mermaid.js
 - Clean up Livebook code
 - Fully document code, write up decisions taken, with their reasons
