@@ -342,6 +342,7 @@ defmodule ZoneRootDomain do
             created_at: nil,
             updated_at: nil,
             expires_at: nil,
+            queried_at: NaiveDateTime.utc_now(),
             query_tool: "",
             zone_tree: []
 end
@@ -1625,7 +1626,8 @@ Kino.Markdown.new(Dns.Visualisation.ZoneRecordTable.construct_dns_zone_table(zon
 
 ```elixir
 defmodule Dns.Visualisation.ZoneRecordTree do
-  @date_format_string "%Y-%m-%d"
+  @iso_date_format_string "%Y-%m-%d"
+  @human_readable_date_format_string "%d %B %Y"
   @domain_name_length zone_tree.name
                       |> DomainName.name()
                       |> String.length()
@@ -1651,9 +1653,9 @@ defmodule Dns.Visualisation.ZoneRecordTree do
                 <tr>
                   <td style="width: #{@domain_name_length}ch;">#{zone_tree.display_name}</td>
                   <td style="width: calc(calc(calc(4rem + var(--record-ttl-width)) + var(--record-class-width)) + var(--record-type-width))">#{zone_tree.registrar}</td>
-                  <td>#{zone_tree.created_at |> Calendar.strftime(@date_format_string)}</td>
-                  <td>#{zone_tree.updated_at |> Calendar.strftime(@date_format_string)}</td>
-                  <td>#{zone_tree.expires_at |> Calendar.strftime(@date_format_string)}</td>
+                  <td>#{zone_tree.created_at |> Calendar.strftime(@iso_date_format_string)}</td>
+                  <td>#{zone_tree.updated_at |> Calendar.strftime(@iso_date_format_string)}</td>
+                  <td>#{zone_tree.expires_at |> Calendar.strftime(@iso_date_format_string)}</td>
                 </tr>
               </tbody>
             </table>
@@ -1665,7 +1667,7 @@ defmodule Dns.Visualisation.ZoneRecordTree do
             </li>
           </ul>
         </div>
-        <figcaption class="figure-caption">Figure 2. Hierarchical table of #{zone_tree.display_name} zone records</figcaption>
+        <figcaption class="figure-caption">Figure 2. Hierarchical table of <span class="domain-name-display">#{zone_tree.display_name}</span> zone records, queried on #{Calendar.strftime(zone_tree.queried_at, "%d") |> String.replace("0", "")} #{Calendar.strftime(zone_tree.queried_at, "%B %Y")}</figcaption>
       </figure>
       """ <>
       styles()
@@ -1706,6 +1708,15 @@ defmodule Dns.Visualisation.ZoneRecordTree do
       padding-right: 2.5rem;
       width: max-content; 
     }
+    .record-list-display,
+    .figure-caption {
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+    .domain-name-display {
+      color: color-mix(in srgb, var(--primary-colour), black 15%);
+      letter-spacing: 0.05rem;
+      font-weight: 500;
+    }
     .record-list-display ul { }
     .record-list-display ul { list-style-type: none; }
     .record-list-display__list { border-radius: 0.5rem; }
@@ -1715,9 +1726,7 @@ defmodule Dns.Visualisation.ZoneRecordTree do
      }
     .record-list-display ul table th,
     .record-list-display ul table td { 
-      --tw-text-opacity: 1;
       color: rgb(97 117 138 / var(--heading-text-opacity));
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
       padding: 0.75rem 1rem;
     }
     .domain-name-infomation__headers { vertical-align: bottom; }
@@ -1729,10 +1738,12 @@ defmodule Dns.Visualisation.ZoneRecordTree do
     .record-ttl { width: var(--record-ttl-width); }    /* 31,536,000 is longest expected length, one year in seconds */
     .record-class { width: var(--record-class-width); }  /* CHAOS is longest class name, 5 characters */
     .record-type { width: var(--record-type-width); }   /* UNSPEC is longest type name, 6 characters */
-    .record-specialisation {
-      color: #222;
-      font-size: 0.75rem;
+    .record-specialisation,
+    .out-of-zone__label {
+      color: color-mix(in srgb, var(--primary-colour), black 30%);
+      font-size: 0.7rem;
       font-weight: 500;
+      text-transform: uppercase;
     }
     .record-data {
       max-width: 75ex;
@@ -1765,11 +1776,11 @@ defmodule Dns.Visualisation.ZoneRecordTree do
         <table>
           <tbody>
             <tr class="">
-              <td class="record-name" style="width: calc(#{@domain_name_length}ch - calc(#{record.depth} * calc(var(--indentation-increment) * 1)));">#{record.name}</td>
-              <td class="record-ttl">#{record.ttl}</td>
-              <td class="record-class">#{record.class |> to_string() |> String.upcase()}</td>
-              <td class="record-type">#{record.type |> to_string() |> String.upcase()}#{if record.specialised_type != nil do
-        "<br /><span class=\"record-specialisation\">" <> String.upcase(to_string(record.specialised_type)) <> "</span>"
+              <td class="record-name" style="width: calc(#{@domain_name_length}ch - calc(#{record.depth} * calc(var(--indentation-increment) * 1)));">#{record.name}<br />#{if not record.inside_zone, do: "<span class=\"out-of-zone__label\">External record</span>"}</td>
+              <td class="record-ttl">#{record.ttl}<br /><span> </span></td>
+              <td class="record-class">#{record.class |> to_string() |> String.upcase()}<br /></td>
+              <td class="record-type">#{record.type |> to_string() |> String.upcase()}<br />#{if record.specialised_type != nil do
+        "<span class=\"record-specialisation\">" <> String.upcase(to_string(record.specialised_type)) <> "</span>"
       end}</td>
               <td class="record-data">#{record.data}</td>
             </tr>
