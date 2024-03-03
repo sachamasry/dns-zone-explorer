@@ -1592,7 +1592,7 @@ end
 
 ```elixir
 defmodule Dns.Visualisation.CSS do
-  def styles(options \\ []) do
+  def styles(_options \\ []) do
     """
     <style>
     :root {
@@ -1615,6 +1615,10 @@ defmodule Dns.Visualisation.CSS do
       --heading-text-opacity: 0.95;
       --out-of-zone-bg-colour: color-mix(in srgb, var(--primary-colour) 7%, white);
     }
+    figure { 
+      margin-left: 0;
+      margin-right: 0;
+    }
     .figure-caption { 
       color: rgb(97 117 138 / var(--heading-text-opacity));
       margin: 1.5rem 0;
@@ -1624,6 +1628,7 @@ defmodule Dns.Visualisation.CSS do
       border-radius: 0.5rem;
       box-shadow: 0 0 25px -5px #0000001a, 0 0 10px -5px #0000000a;
       min-width: 100%;
+      padding-left: 2.5rem;
       padding-right: 2.5rem;
       width: max-content; 
     }
@@ -1636,15 +1641,21 @@ defmodule Dns.Visualisation.CSS do
       letter-spacing: 0.05rem;
       font-weight: 500;
     }
-    .record-list-display ul { }
     .record-list-display ul { list-style-type: none; }
     .record-list-display__list { border-radius: 0.5rem; }
-    .record-list-display ul table { 
+    .record-list-display table { 
       border-collapse: collapse;
       table-layout: auto;
-     }
-    .record-list-display ul table th,
-    .record-list-display ul table td { 
+    }
+    .record-list-display--flat-list table thead tr {
+      border-bottom: 1px solid color-mix(in srgb, var(--primary-colour) 40%, white);
+    }
+    .record-list-display--flat-list table tbody tr {
+      border-bottom: 1px solid color-mix(in srgb, var(--primary-colour) 20%, white);
+    }
+    .record-list-display--flat-list table tbody tr:last-child { border-bottom-width: 0; }
+    .record-list-display table th,
+    .record-list-display table td { 
       color: rgb(97 117 138 / var(--heading-text-opacity));
       padding: 0.75rem 1rem;
     }
@@ -1660,7 +1671,7 @@ defmodule Dns.Visualisation.CSS do
     .record-specialisation,
     .out-of-zone__label {
       color: color-mix(in srgb, var(--primary-colour), black 30%);
-      font-size: 0.7rem;
+      font-size: 0.55rem;
       font-weight: 500;
       text-transform: uppercase;
     }
@@ -1672,7 +1683,7 @@ defmodule Dns.Visualisation.CSS do
     .record-depth-3, .record-depth-4, .record-depth-5,
     .record-depth-6, .record-depth-7, .record-depth-8,
     .record-depth-9, .record-depth-10 { border-top: 1px solid white; }
-    .record-depth-0 { }
+    .record-depth-0 { padding-left: 0; }
     .record-depth-1 { border-top: 1px solid var(--colour-1); }
     .record-depth-2 { border-top: 1px solid var(--colour-2); }
     .record-depth-3 { border-top: 1px dotted var(--colour-3); }
@@ -1694,20 +1705,22 @@ defmodule Dns.Visualisation.ZoneRecordTable do
   def construct_html_zone_table(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
     """
     <figure>
-    <div class="record-list-display">
-      <table>
-        <tbody>
-          <tr class="domain-name-infomation__headers">
-            <th>Name</th>
-            <th>TTL</th>
-            <th class="iso-date">Class</th>
-            <th class="iso-date">Type</th>
-            <th class="iso-date">Value</th>
-          </tr>
+      <div class="record-list-display record-list-display--flat-list">
+        <table>
+          <thead>
+            <tr class="domain-name-infomation__headers">
+              <th align="left">Name</th>
+              <th align="right">TTL</th>
+              <th align="left">Class</th>
+              <th align="left">Type</th>
+              <th align="left">Value</th>
+            </tr>
+          </thead>
+          <tbody>
     """ <>
       format_record_list(zone_tree.zone_tree) <>
       """
-          </tbody>
+            </tbody>
           </table>
         </div>
         <figcaption class="figure-caption">Figure 1. Flat record table of <span class="domain-name-display">#{zone_tree.display_name}</span> zone records, queried on #{Calendar.strftime(zone_tree.queried_at, "%d") |> String.replace("0", "")} #{Calendar.strftime(zone_tree.queried_at, "%B %Y")}</figcaption>
@@ -1721,38 +1734,15 @@ defmodule Dns.Visualisation.ZoneRecordTable do
     |> Enum.map(fn %DnsRecord{} = record ->
       """
             <tr class="record">
-              <td class="record-name">#{record.name}</td>
-              <td class="record-ttl">#{record.ttl}</td>
-              <td class="record-class">#{record.class |> to_string() |> String.upcase()}<br /></td>
-              <td class="record-type">#{record.type |> to_string() |> String.upcase()}<br />#{if record.specialised_type != nil do
+              <td align="left" class="record-name">#{record.name}</td>
+              <td align="right" class="record-ttl">#{record.ttl}</td>
+              <td align="left" class="record-class">#{record.class |> to_string() |> String.upcase()}<br /></td>
+              <td align="left " class="record-type">#{record.type |> to_string() |> String.upcase()}<br />#{if record.specialised_type != nil do
         "<span class=\"record-specialisation\">" <> String.upcase(to_string(record.specialised_type)) <> "</span>"
       end}</td>
-              <td class="record-data">#{record.data}</td>
+              <td align="left" class="record-data">#{record.data}</td>
             </tr>
       """
-    end)
-    |> Enum.join("\n")
-  end
-
-  # TO DEPRECATE
-  def construct_dns_zone_table(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
-    dns_zone_table_header() <>
-      (zone_tree
-       |> Dns.ZoneTree.RecordList.get_flattened_zone_record_list()
-       |> construct_dns_table_records)
-  end
-
-  def dns_zone_table_header() do
-    """
-    | Name |  TTL | Class | Type | Value |
-    | :--- | ---: | :---  | :--- | :---  | 
-    """
-  end
-
-  def construct_dns_table_records(zone_tree) do
-    zone_tree
-    |> Enum.map(fn rec ->
-      "| #{rec.name} | #{rec.ttl} | #{String.upcase(Kernel.to_string(rec.class))} | #{String.upcase(Kernel.to_string(rec.type))} | #{rec.data} |"
     end)
     |> Enum.join("\n")
   end
@@ -1761,12 +1751,6 @@ end
 
 ```elixir
 Kino.HTML.new(Dns.Visualisation.ZoneRecordTable.construct_html_zone_table(zone_tree))
-```
-
-<!-- livebook:{"reevaluate_automatically":true} -->
-
-```elixir
-Kino.Markdown.new(Dns.Visualisation.ZoneRecordTable.construct_dns_zone_table(zone_tree))
 ```
 
 ## Displaying a text-based tree of the zone
@@ -1789,7 +1773,7 @@ defmodule Dns.Visualisation.ZoneRecordTree do
         <ul class="record-list-display__list record-depth-0">
           <li>
             <table>
-              <tbody>
+              <thead>
                 <tr class="domain-name-infomation__headers">
                   <th>Domain name</th>
                   <th>Domain registrar</th>
@@ -1797,6 +1781,8 @@ defmodule Dns.Visualisation.ZoneRecordTree do
                   <th class="iso-date">Last update date</th>
                   <th class="iso-date">Expiry date</th>
                 </tr>
+              </thead>
+              <tbody>
                 <tr>
                   <td style="width: #{@domain_name_length}ch;">#{zone_tree.display_name}</td>
                   <td style="width: calc(calc(calc(4rem + var(--record-ttl-width)) + var(--record-class-width)) + var(--record-type-width))">#{zone_tree.registrar}</td>
@@ -1828,13 +1814,13 @@ defmodule Dns.Visualisation.ZoneRecordTree do
         <table>
           <tbody>
             <tr class="">
-              <td class="record-name" style="width: calc(#{@domain_name_length}ch - calc(#{record.depth} * calc(var(--indentation-increment) * 1)));">#{record.name}<br />#{if not record.inside_zone, do: "<span class=\"out-of-zone__label\">External record</span>"}</td>
-              <td class="record-ttl">#{record.ttl}<br /><span> </span></td>
-              <td class="record-class">#{record.class |> to_string() |> String.upcase()}<br /></td>
-              <td class="record-type">#{record.type |> to_string() |> String.upcase()}<br />#{if record.specialised_type != nil do
+              <td align="left" class="record-name" style="width: calc(#{@domain_name_length}ch - calc(#{record.depth} * calc(var(--indentation-increment) * 1)));">#{record.name}<br />#{if not record.inside_zone, do: "<span class=\"out-of-zone__label\">External record</span>"}</td>
+              <td align="right" class="record-ttl">#{record.ttl}</td>
+              <td align="left" class="record-class">#{record.class |> to_string() |> String.upcase()}</td>
+              <td align="left" class="record-type">#{record.type |> to_string() |> String.upcase()}<br />#{if record.specialised_type != nil do
         "<span class=\"record-specialisation\">" <> String.upcase(to_string(record.specialised_type)) <> "</span>"
       end}</td>
-              <td class="record-data">#{record.data}</td>
+              <td align="left" class="record-data">#{record.data}</td>
             </tr>
           </tbody>
         </table>
