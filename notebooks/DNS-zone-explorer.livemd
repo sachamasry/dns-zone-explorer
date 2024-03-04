@@ -609,7 +609,7 @@ defmodule Dns.Core do
       type: record.type,
       weight: 0,
       name: fqdn,
-      display_name: "SOA #{record.domain} zone",
+      display_name: "#{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data:
@@ -631,15 +631,15 @@ defmodule Dns.Core do
     fqdn = DomainName.new!(record.domain)
 
     DnsRecord.construct_dns_record(%{
-      id: "NS #{record.data}",
+      id: "NS-#{record.data}",
       type: record.type,
       weight: 5,
       name: fqdn,
-      display_name: "NS",
+      display_name: "NS #{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: "#{record.data}",
-      structured_data: %{fqdn: DomainName.new!(record.data)},
+      structured_data: %{fqdn: fqdn},
       query_tool: record.query_tool,
       answer_source: record.answer_source
     })
@@ -802,18 +802,13 @@ defmodule Dns.Core do
       |> Enum.reject(fn i -> i == "" or is_nil(i) end)
       |> Enum.join("-")
 
-    display_name_construction =
-      [String.upcase(Kernel.to_string(specialised_type)), "[TXT]", record.domain]
-      |> Enum.reject(fn i -> i == "" end)
-      |> Enum.join(" ")
-
     DnsRecord.construct_dns_record(%{
       id: id_construction,
       type: record.type,
       specialised_type: specialised_type,
       weight: 30,
       name: fqdn,
-      display_name: display_name_construction,
+      display_name: record.domain,
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: Enum.join(record.data, " "),
@@ -832,7 +827,7 @@ defmodule Dns.Core do
       specialised_type: :spf,
       weight: 35,
       name: fqdn,
-      display_name: "SPF [LEGACY] #{record.domain}",
+      display_name: "[LEGACY SPF] #{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: Enum.join(record.data, " || "),
@@ -860,7 +855,7 @@ defmodule Dns.Core do
       type: record.type,
       weight: 40,
       name: fqdn,
-      display_name: "CAA #{record.domain}",
+      display_name: "#{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data: "CAA Flag: #{parsed_data.flag} Tag: #{parsed_data.tag} Value: #{parsed_data.value}",
@@ -885,7 +880,7 @@ defmodule Dns.Core do
       type: record.type,
       weight: 45,
       name: fqdn,
-      display_name: "SRV #{record.domain}",
+      display_name: "#{record.domain}",
       inside_zone: is_subdomain_of_zone?(fqdn, options[:zone_root_domain]),
       ttl: record.ttl,
       data:
@@ -1859,11 +1854,12 @@ dns_zone_diagram_configuration =
   %%{ init: { 
     'theme': 'base',
     'themeVariables': {
-      'clusterBkg': '#81a1c144;'
+      'clusterBkg': '#81a1c144;',
+      'lineColor': '#FFBE98'
     },
     'fontFamily': 'Calluna Sans, Helvetica, Trebuchet MS, Verdana, Arial, Sans-Serif',
     'flowchart': { 
-      'curve': 'linear',
+      'curve': 'bumpX',
       'useMaxWidth': 'true'
      } 
     } }%%
@@ -1892,80 +1888,57 @@ diagram_styles =
 First, we need a module, `ZoneTree` to convert this data into Mermaid flowchart definition code.
 
 ```elixir
-defmodule ZoneTree do
-  def define_parent_node(parent_domain) do
-    strf_format_string = "%Y-%m-%d"
+defmodule Dns.Visualisation.ZoneTreeDiagram do
+  @iso_date_format_string "%Y-%m-%d"
 
-    domain_critical_info = DomainNameQuerying.get_critical_domain_info(parent_domain)
-    date_created = domain_critical_info.created_at |> Calendar.strftime(strf_format_string)
-    date_updated = domain_critical_info.updated_at |> Calendar.strftime(strf_format_string)
-    date_expires = domain_critical_info.expires_at |> Calendar.strftime(strf_format_string)
+  def define_parent_node(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
+    date_created = zone_tree.created_at |> Calendar.strftime(@iso_date_format_string)
+    date_updated = zone_tree.updated_at |> Calendar.strftime(@iso_date_format_string)
+    date_expires = zone_tree.expires_at |> Calendar.strftime(@iso_date_format_string)
 
-    "parent-node([\"`#{DomainName.name(parent_domain)}
+    "parent-node([\"`#{DomainName.name(zone_tree.name)}
     —
     Created #{date_created}
     Updated #{date_updated}
     Expiry #{date_expires}`\"]):::parent-node;"
   end
 
-  def define_dns_zone(
-        parent_domain,
-        dmarc_subdomain_label,
-        dkim_subdomain_label,
-        known_dkim_selector_list
-      ) do
-    zone_tree =
-      Dns.ZoneTree.construct_zone_tree(
-        parent_domain,
-        dmarc_subdomain_label,
-        dkim_subdomain_label,
-        known_dkim_selector_list
-      )
-
+  def define_dns_zone(parent_node_id, record_list)
+      when is_bitstring(parent_node_id) and is_list(record_list) do
     zone_records =
-      for rec <- zone_tree do
-        construct_zone_records("parent-node", rec)
-        #     "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{rec.display_name} 
-        #     —
-        #     TTL #{rec.ttl}
-        #     #{if rec.type === :mx, do: rec.priority} #{rec.data}`\"])#{attach_style_class(rec.type)}"
+      for rec <- record_list do
+        construct_zone_records(parent_node_id, rec)
       end
 
     # zone_records
     # |> Enum.join(";")
   end
 
-  defp construct_zone_records(parent_node, record) do
-    "#{parent_node} #{define_link_type(record.type)} #{record.id}([\"`#{record.display_name} 
+  defp construct_zone_records(parent_node_id, record)
+       when is_bitstring(parent_node_id) and is_struct(record, DnsRecord) do
+    "#{parent_node_id} #{define_link_type(record.type)} #{record.id}([\"`#{record.display_name} 
         —
-        TTL #{record.ttl}
-        #{if record.type === :mx, do: record.priority} #{if record.special_type == "DKIM", do: String.slice(record.data, 0..25) <> "...", else: record.data}`\"])#{attach_style_class(record.type)};
-        #{if Map.get(record, :children, []) != [], do: construct_zone_records(record.id, record.children)}"
+    TTL #{record.ttl}
+    #{Enum.join([record.type |> to_string() |> String.upcase(), record.specialised_type |> to_string() |> String.upcase()], " ")}
+    #{if record.type === :mx, do: record.structured_data.priority} #{if record.specialised_type == :dkim and record.type == :txt, do: String.slice(record.data, 0..25) <> "...", else: record.data}`\"])#{attach_style_class(record.type)};
+    #{if Map.get(record, :child_records, []) != [], do: define_dns_zone(record.id, record.child_records)}
+    #{construct_circular_reference(parent_node_id, record)}"
   end
 
-  def define_dns_sub_zones(parent_domain, subdomain_list) do
-    zone_tree = Dns.ZoneTree.construct_cname_zone_trees(parent_domain, subdomain_list)
-
-    zone_records =
-      for rec <- zone_tree do
-        "parent-node #{define_link_type(rec.type)} #{rec.id}([\"`#{rec.display_name} #{if rec.type === :mx, do: ": " <> rec.name}
-        —
-        TTL #{rec.ttl}
-        #{if rec.type === :mx, do: rec.priority} #{if rec.special_type == "DKIM", do: String.slice(rec.data, 0..25) <> "...", else: rec.data}`\"])#{attach_style_class(rec.type)}"
-      end
-
-    zone_records
-    |> Enum.join(";")
+  defp construct_circular_reference(parent_node_id, %DnsRecord{data: parent_node_id} = record) do
+    "#{record.id} #{define_link_type(record.type)} #{parent_node_id};"
   end
+
+  defp construct_circular_reference(_parent_node_id, %DnsRecord{} = _record), do: ""
 
   def define_link_type(type) when is_atom(type) do
     case type do
-      :a -> "---"
-      :ns -> "-.-"
-      :mx -> "---"
-      :txt -> "---"
-      :cname -> "---"
-      _ -> "---"
+      :a -> "---->"
+      :ns -> "-...->"
+      :mx -> "---->"
+      :txt -> "---->"
+      :cname -> "---->"
+      _ -> "---->"
     end
   end
 
@@ -1996,15 +1969,10 @@ The `construct_tree/1` function takes the parent domain and the list of subdomai
 <!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
-parent_node = ZoneTree.define_parent_node(verified_domain)
+parent_node = Dns.Visualisation.ZoneTreeDiagram.define_parent_node(zone_tree)
 
 parent_zone =
-  ZoneTree.define_dns_zone(
-    verified_domain,
-    dmarc_subdomain_label,
-    dkim_subdomain_label,
-    known_dkim_selector_list
-  )
+  Dns.Visualisation.ZoneTreeDiagram.define_dns_zone(zone_tree.display_name, zone_tree.zone_tree)
 
 # """
 # subgraph parent-zone [#{DomainName.name(verified_domain)} zone];
@@ -2014,8 +1982,8 @@ parent_zone =
 # end;
 # """
 
-zones =
-  ZoneTree.define_dns_sub_zones(verified_domain, enumerated_subdomains)
+# zones =
+#   Dns.Visualisation.ZoneTreeDiagram.define_dns_sub_zones(verified_domain, enumerated_subdomains)
 ```
 
 Feeding this definition string into the scaffolded diagram definition provides us with the complete diagram definition.
@@ -2032,10 +2000,10 @@ dns_zone_diagram =
 
   #{parent_zone}
 
-  #{zones};
-
   #{diagram_styles}
   """
+
+# {zones};
 ```
 
 ```elixir

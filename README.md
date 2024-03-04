@@ -6,7 +6,7 @@ anomalies or vulnerabilities.
 
 ## To do
 
-- Create a fully visual, tree-like graphic presentation of the tree, using Mermaid.js
+- Update DNS zone graph colour palette
 - Clean up Livebook code
 - Fully document code, write up decisions taken, with their reasons
 - Fully document the project in this README file
