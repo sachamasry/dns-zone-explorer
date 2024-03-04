@@ -1542,45 +1542,58 @@ end
 
 ```elixir
 defmodule Dns.ZoneTree.RecordList do
-  def get_flattened_zone_record_list(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
-    traverse_zone_tree(zone_tree)
+  def get_flattened_zone_record_list(zone_tree, options \\ %{include_virtual: false})
+      when is_struct(zone_tree, ZoneRootDomain) do
+    traverse_zone_tree(zone_tree, options)
     |> List.flatten()
     |> Dns.ZoneTree.MergeTrees.sort_dns_records()
   end
 
-  def traverse_zone_tree(tree) do
-    iterate_records_list(tree.zone_tree, [])
+  def traverse_zone_tree(tree, options) do
+    iterate_record_list(tree.zone_tree, [], options)
   end
 
-  def iterate_records_list([], acc), do: acc
+  def iterate_record_list([], acc, _options), do: acc
 
-  def iterate_records_list(record_list, acc) when is_list(record_list) do
+  def iterate_record_list(record_list, acc, options) when is_list(record_list) do
     record_list
     |> Enum.map(fn record ->
-      handle_record(record, acc)
+      handle_record(record, acc, options)
     end)
   end
 
-  def handle_record(%DnsRecord{inside_zone: true, child_records: []} = record, acc),
+  def handle_record(%DnsRecord{inside_zone: true, child_records: []} = record, acc, _options),
     do: [record | acc]
 
   def handle_record(
         %DnsRecord{type: :virtual, inside_zone: true, child_records: [_ | _] = children} =
           _record,
-        acc
+        acc,
+        %{include_virtual: false} = options
       ) do
-    [acc | iterate_records_list(children, [])]
+    [acc | iterate_record_list(children, [], options)]
   end
 
   def handle_record(
         %DnsRecord{inside_zone: true, child_records: [_ | _] = children} = record,
-        acc
+        acc,
+        options
       ) do
-    [record | [acc | iterate_records_list(children, [])]]
+    [record |> Map.put(:child_records, []) | [acc | iterate_record_list(children, [], options)]]
   end
 
-  def handle_record(%DnsRecord{inside_zone: false} = _record, acc), do: acc
+  def handle_record(%DnsRecord{inside_zone: false} = _record, acc, _options), do: acc
 end
+```
+
+```elixir
+Dns.ZoneTree.RecordList.get_flattened_zone_record_list(zone_tree, %{include_virtual: true})
+```
+
+```elixir
+options =
+  [exclude_virtual: true, a: 2]
+  |> IEx.Helpers.i()
 ```
 
 ## DNS record list
@@ -1753,7 +1766,6 @@ Kino.HTML.new(Dns.Visualisation.ZoneRecordTable.construct_html_zone_table(zone_t
 ```elixir
 defmodule Dns.Visualisation.ZoneRecordTree do
   @iso_date_format_string "%Y-%m-%d"
-  # @human_readable_date_format_string "%d %B %Y"
   @domain_name_length zone_tree.name
                       |> DomainName.name()
                       |> String.length()
@@ -1896,7 +1908,7 @@ defmodule Dns.Visualisation.ZoneTreeDiagram do
     date_updated = zone_tree.updated_at |> Calendar.strftime(@iso_date_format_string)
     date_expires = zone_tree.expires_at |> Calendar.strftime(@iso_date_format_string)
 
-    "parent-node([\"`#{DomainName.name(zone_tree.name)}
+    "#{zone_tree.display_name}([\"`#{DomainName.name(zone_tree.name)}
     —
     Created #{date_created}
     Updated #{date_updated}
@@ -1905,13 +1917,25 @@ defmodule Dns.Visualisation.ZoneTreeDiagram do
 
   def define_dns_zone(parent_node_id, record_list)
       when is_bitstring(parent_node_id) and is_list(record_list) do
-    zone_records =
+    _zone_records =
       for rec <- record_list do
         construct_zone_records(parent_node_id, rec)
       end
 
     # zone_records
     # |> Enum.join(";")
+  end
+
+  def construct_parent_zone_subgraph(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
+    """
+    subgraph #{zone_tree.display_name}-zone [#{DomainName.name(zone_tree.name)} zone];
+
+      direction LR;
+      #{zone_tree.display_name};
+      #{Dns.ZoneTree.RecordList.get_flattened_zone_record_list(zone_tree, %{include_virtual: true}) |> Enum.map(fn record -> record.id <> ";" end)}
+
+    end;
+    """
   end
 
   defp construct_zone_records(parent_node_id, record)
@@ -1971,16 +1995,10 @@ The `construct_tree/1` function takes the parent domain and the list of subdomai
 ```elixir
 parent_node = Dns.Visualisation.ZoneTreeDiagram.define_parent_node(zone_tree)
 
-parent_zone =
+nodes_with_relationships =
   Dns.Visualisation.ZoneTreeDiagram.define_dns_zone(zone_tree.display_name, zone_tree.zone_tree)
 
-# """
-# subgraph parent-zone [#{DomainName.name(verified_domain)} zone];
-
-#   direction LR;
-
-# end;
-# """
+parent_zone = Dns.Visualisation.ZoneTreeDiagram.construct_parent_zone_subgraph(zone_tree)
 
 # zones =
 #   Dns.Visualisation.ZoneTreeDiagram.define_dns_sub_zones(verified_domain, enumerated_subdomains)
@@ -1997,6 +2015,8 @@ dns_zone_diagram =
   #{diagram_type};
 
   #{parent_node}
+
+  #{nodes_with_relationships}
 
   #{parent_zone}
 
@@ -2016,6 +2036,17 @@ The diagram definition, stored in the `dns_zone_diagram` variable, can now be us
 
 ```elixir
 Kino.Mermaid.new(dns_zone_diagram)
+```
+
+```elixir
+Kino.HTML.new(
+  """
+  <figure>
+    <figcaption class="figure-caption">Figure 3. Full zone tree graph of <span class="domain-name-display">#{zone_tree.display_name}</span> zone, queried on #{Calendar.strftime(zone_tree.queried_at, "%d") |> String.replace("0", "")} #{Calendar.strftime(zone_tree.queried_at, "%B %Y")}</figcaption>
+  </figure>
+  """ <>
+    Dns.Visualisation.CSS.styles()
+)
 ```
 
 ## Audit summary and advice
@@ -2056,4 +2087,15 @@ Kino.Markdown.new("""
 
 **SPF record** _`#{spf_scan_result}`_
 """)
+```
+
+```elixir
+Kino.HTML.new(
+  """
+  <figure>
+    <figcaption class="figure-caption">Figure 4. DNS record audit and automated advice for <span class="domain-name-display">#{zone_tree.display_name}</span> zone, queried on #{Calendar.strftime(zone_tree.queried_at, "%d") |> String.replace("0", "")} #{Calendar.strftime(zone_tree.queried_at, "%B %Y")}</figcaption>
+  </figure>
+  """ <>
+    Dns.Visualisation.CSS.styles()
+)
 ```
