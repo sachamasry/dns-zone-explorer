@@ -33,6 +33,8 @@ The following will read and attempt to construct a valid domain name and parrot 
   )
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 defmodule DomainName.Querying do
   def domain_name_query(domain_name) do
@@ -56,6 +58,8 @@ Email authentication is a collection of techniques aimed at providing verifiable
 
 BIMI is a branding specification, and as it is bound to be more widely used, we will specify its own subdomain label requirement as well.
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 dkim_subdomain_label = "_domainkey"
 dmarc_subdomain_label = "_dmarc"
@@ -63,6 +67,8 @@ bimi_subdomain_label = "_bimi"
 ```
 
 Let's define a set of DKIM selectors in `dkim_selector_list`, as a valid selector is needed to query for a DKIM key.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 known_dkim_selector_list = [
@@ -95,6 +101,8 @@ known_dkim_selector_list = [
 
 Let's get locations of all subdomain enumeration tools we may need, into variables we can use.
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 amass_binary = System.get_env("LB_AMASS_BIN")
 assetfinder_binary = System.get_env("LB_ASSETFINDER_BIN")
@@ -107,6 +115,8 @@ dss_binary = System.get_env("LB_DSS_BIN")
 ```
 
 ## Using Erlang's :inet_res builtin functionality
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.Query do
@@ -203,8 +213,6 @@ defmodule Dns.Query do
   def get_dmarc_record(fqdn, dmarc_subdomain_label) do
     construct_subdomain_host(fqdn, dmarc_subdomain_label)
     |> get_record_info(:txt, answer_source: "DMARC query")
-
-    # |> filter_for_matching_type(:txt)
   end
 
   def get_dkim_records(fqdn, dkim_subdomain_label, selector_list)
@@ -260,17 +268,19 @@ We now call out to `System.cmd` to run `subfinder` on our domain. Note that ease
 
 **PLEASE NOTE** This command is run on the network, querying multiple internet sources, and as such is likely to take some time, typically needing 30 seconds or more. Please be patient and don't interrupt it unnecessarily. For additional informative use, `stderr` has been redirected to `stdout` to show error messages, if any.
 
-```elixir
-# {subfinder_query_result, 0} =
-#   System.cmd(
-#     "bash",
-#     ["-lc", "#{subfinder_binary} -d #{DomainName.name(verified_domain)} -silent -json -active"],
-#     stderr_to_stdout: true
-#   )
+<!-- livebook:{"reevaluate_automatically":true} -->
 
-subfinder_query_result =
-  {"{\"host\":\"api.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"school.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"digitorus\"}\n{\"host\":\"watch.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"hackertarget\"}\n{\"host\":\"email.reply.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"www.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"go.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n",
-   0}
+```elixir
+{subfinder_query_result, 0} =
+  System.cmd(
+    "bash",
+    ["-lc", "#{subfinder_binary} -d #{DomainName.name(verified_domain)} -silent -json -active"],
+    stderr_to_stdout: true
+  )
+
+# subfinder_query_result =
+#   {"{\"host\":\"api.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"school.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"digitorus\"}\n{\"host\":\"watch.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"hackertarget\"}\n{\"host\":\"email.reply.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"www.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n{\"host\":\"go.magicpillsmovie.com\",\"input\":\"magicpillsmovie.com\",\"source\":\"leakix\"}\n",
+#    0}
 ```
 
 With query results saved to `subfinder_query_results`, we now need to clean up the results by splitting away newline characters (`\n`), filtering out empty strings, and parsing the JSON results.
@@ -278,59 +288,61 @@ With query results saved to `subfinder_query_results`, we now need to clean up t
 <!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
-# enumerated_subdomains =
-#   subfinder_query_result
-#   |> String.split("\n")
-#   |> Enum.filter(fn rec -> rec != "" end)
-#   |> Enum.map(fn rec -> Jason.decode!(rec) end)
-#   |> Enum.map(fn m ->
-#     m
-#     |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
-#     |> Map.merge(%{tool: "subfinder"})
-#   end)
-#   |> Enum.filter(fn %{host: host} -> host != DomainName.name(verified_domain) end)
+enumerated_subdomains =
+  subfinder_query_result
+  |> String.split("\n")
+  |> Enum.filter(fn rec -> rec != "" end)
+  |> Enum.map(fn rec -> Jason.decode!(rec) end)
+  |> Enum.map(fn m ->
+    m
+    |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+    |> Map.merge(%{tool: "subfinder"})
+  end)
+  |> Enum.filter(fn %{host: host} -> host != DomainName.name(verified_domain) end)
 
-enumerated_subdomains = [
-  %{
-    input: "magicpillsmovie.com",
-    host: "api.magicpillsmovie.com",
-    source: "leakix",
-    tool: "subfinder"
-  },
-  %{
-    input: "magicpillsmovie.com",
-    host: "school.magicpillsmovie.com",
-    source: "leakix",
-    tool: "subfinder"
-  },
-  %{
-    input: "magicpillsmovie.com",
-    host: "watch.magicpillsmovie.com",
-    source: "hackertarget",
-    tool: "subfinder"
-  },
-  %{
-    input: "magicpillsmovie.com",
-    host: "email.reply.magicpillsmovie.com",
-    source: "leakix",
-    tool: "subfinder"
-  },
-  %{
-    input: "magicpillsmovie.com",
-    host: "www.magicpillsmovie.com",
-    source: "leakix",
-    tool: "subfinder"
-  },
-  %{
-    input: "magicpillsmovie.com",
-    host: "go.magicpillsmovie.com",
-    source: "leakix",
-    tool: "subfinder"
-  }
-]
+# enumerated_subdomains = [
+#   %{
+#     input: "magicpillsmovie.com",
+#     host: "api.magicpillsmovie.com",
+#     source: "leakix",
+#     tool: "subfinder"
+#   },
+#   %{
+#     input: "magicpillsmovie.com",
+#     host: "school.magicpillsmovie.com",
+#     source: "leakix",
+#     tool: "subfinder"
+#   },
+#   %{
+#     input: "magicpillsmovie.com",
+#     host: "watch.magicpillsmovie.com",
+#     source: "hackertarget",
+#     tool: "subfinder"
+#   },
+#   %{
+#     input: "magicpillsmovie.com",
+#     host: "email.reply.magicpillsmovie.com",
+#     source: "leakix",
+#     tool: "subfinder"
+#   },
+#   %{
+#     input: "magicpillsmovie.com",
+#     host: "www.magicpillsmovie.com",
+#     source: "leakix",
+#     tool: "subfinder"
+#   },
+#   %{
+#     input: "magicpillsmovie.com",
+#     host: "go.magicpillsmovie.com",
+#     source: "leakix",
+#     tool: "subfinder"
+#   }
+# ]
 ```
 
 ## Core functionality
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule ZoneRootDomain do
@@ -347,6 +359,8 @@ defmodule ZoneRootDomain do
             zone_tree: []
 end
 ```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule DnsRecord do
@@ -387,6 +401,8 @@ defmodule DnsRecord do
   end
 end
 ```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.Core do
@@ -971,27 +987,33 @@ end
 
 ## Get DKIM, DMARC and SPF records
 
-```elixir
-# {dss_domain_scan, 0} =
-#   System.cmd(
-#     "bash",
-#     [
-#       "-lc",
-#       "#{dss_binary} scan #{DomainName.name(verified_domain)} --advise --checkTls --format json"
-#     ],
-#     stderr_to_stdout: true
-#   )
+<!-- livebook:{"reevaluate_automatically":true} -->
 
+```elixir
 {dss_domain_scan, 0} =
-  {"{\"scanResult\":{\"domain\":\"magicpillsmovie.com\",\"elapsed\":1422,\"dkim\":\"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QuexI9cwivkCoREvb6obK6BjbNnY4j/oqkEHZQSwyojtVL1EMjcuDk5vobxnIq+jsbhJjkm3CSA9KHDcberkxxXliewzdxF77QAbUvdU5eNxexEcXdGMsrjnCevlg4k4Kjcrq0Htw+R9jFMM52lW4eJ3pnCsG1Cf9JOK73T9iN1UIOin6E0I2y/1KHsWwXv2fm0Sb7A6PRUoYSCdKITPQV2U6Dz2kusvzB94mA5bVdzCbwhzZ6DpUzmy1PlNWbXBodyZIwoFKoUJ1GpWoUTVhZ97c3aHZ4O1LQwX571o/KZgagurzX9vkmegT6GsOL3BLI46kktHgt3iA3C5oKdKwIDAQABv=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QuexI9cwivkCoREvb6obK6BjbNnY4j/oqkEHZQSwyojtVL1EMjcuDk5vobxnIq+jsbhJjkm3CSA9KHDcberkxxXliewzdxF77QAbUvdU5eNxexEcXdGMsrjnCevlg4k4Kjcrq0Htw+R9jFMM52lW4eJ3pnCsG1Cf9JOK73T9iN1UIOin6E0I2y/1KHsWwXv2fm0Sb7A6PRUoYSCdKITPQV2U6Dz2kusvzB94mA5bVdzCbwhzZ6DpUzmy1PlNWbXBodyZIwoFKoUJ1GpWoUTVhZ97c3aHZ4O1LQwX571o/KZgagurzX9vkmegT6GsOL3BLI46kktHgt3iA3C5oKdKwIDAQAB\",\"dmarc\":\"v=DMARC1;p=reject TTL: 1 hour\",\"mx\":[\"mx.runbox.com.\"],\"ns\":[\"dns1.p04.nsone.net.\",\"dns2.p04.nsone.net.\",\"dns3.p04.nsone.net.\",\"dns4.p04.nsone.net.\"],\"spf\":\"v=spf1 include:spf.runbox.com include:spf.mailjet.com +mx ~all\"},\"advice\":{\"bimi\":[\"We couldn't detect any active BIMI record for your domain. Please visit https://dmarcguide.globalcyberalliance.org to fix this.\"],\"dkim\":[\"DKIM is setup for this email server. However, if you have other 3rd party systems, please send a test email to confirm DKIM is setup properly.\"],\"dmarc\":[\"Invalid DMARC policy specified, the record must be p=none/p=quarantine/p=reject.\",\"Consider specifying a 'rua' tag for aggregate reporting.\",\"Consider specifying an 'fo' tag to define the condition for generating failure reports. Default is '0' (report if both SPF and DKIM fail).\",\"Consider specifying a 'ruf' tag for forensic reporting.\",\"Subdomain policy isn't specified, they'll default to the main policy instead.\"],\"domain\":[\"Your domain is using TLS 1.3, no further action needed!\"],\"mx\":[\"You have a single mail server setup, but it's recommended that you have at least two setup in case the first one fails.\",\"mx.runbox.com: Failed to reach domain before timeout\"],\"spf\":[\"SPF seems to be setup correctly! No further action needed.\"]}}\n",
-   0}
+  System.cmd(
+    "bash",
+    [
+      "-lc",
+      "#{dss_binary} scan #{DomainName.name(verified_domain)} --advise --checkTls --format json"
+    ],
+    stderr_to_stdout: true
+  )
+
+# {dss_domain_scan, 0} =
+#   {"{\"scanResult\":{\"domain\":\"magicpillsmovie.com\",\"elapsed\":1422,\"dkim\":\"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QuexI9cwivkCoREvb6obK6BjbNnY4j/oqkEHZQSwyojtVL1EMjcuDk5vobxnIq+jsbhJjkm3CSA9KHDcberkxxXliewzdxF77QAbUvdU5eNxexEcXdGMsrjnCevlg4k4Kjcrq0Htw+R9jFMM52lW4eJ3pnCsG1Cf9JOK73T9iN1UIOin6E0I2y/1KHsWwXv2fm0Sb7A6PRUoYSCdKITPQV2U6Dz2kusvzB94mA5bVdzCbwhzZ6DpUzmy1PlNWbXBodyZIwoFKoUJ1GpWoUTVhZ97c3aHZ4O1LQwX571o/KZgagurzX9vkmegT6GsOL3BLI46kktHgt3iA3C5oKdKwIDAQABv=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1QuexI9cwivkCoREvb6obK6BjbNnY4j/oqkEHZQSwyojtVL1EMjcuDk5vobxnIq+jsbhJjkm3CSA9KHDcberkxxXliewzdxF77QAbUvdU5eNxexEcXdGMsrjnCevlg4k4Kjcrq0Htw+R9jFMM52lW4eJ3pnCsG1Cf9JOK73T9iN1UIOin6E0I2y/1KHsWwXv2fm0Sb7A6PRUoYSCdKITPQV2U6Dz2kusvzB94mA5bVdzCbwhzZ6DpUzmy1PlNWbXBodyZIwoFKoUJ1GpWoUTVhZ97c3aHZ4O1LQwX571o/KZgagurzX9vkmegT6GsOL3BLI46kktHgt3iA3C5oKdKwIDAQAB\",\"dmarc\":\"v=DMARC1;p=reject TTL: 1 hour\",\"mx\":[\"mx.runbox.com.\"],\"ns\":[\"dns1.p04.nsone.net.\",\"dns2.p04.nsone.net.\",\"dns3.p04.nsone.net.\",\"dns4.p04.nsone.net.\"],\"spf\":\"v=spf1 include:spf.runbox.com include:spf.mailjet.com +mx ~all\"},\"advice\":{\"bimi\":[\"We couldn't detect any active BIMI record for your domain. Please visit https://dmarcguide.globalcyberalliance.org to fix this.\"],\"dkim\":[\"DKIM is setup for this email server. However, if you have other 3rd party systems, please send a test email to confirm DKIM is setup properly.\"],\"dmarc\":[\"Invalid DMARC policy specified, the record must be p=none/p=quarantine/p=reject.\",\"Consider specifying a 'rua' tag for aggregate reporting.\",\"Consider specifying an 'fo' tag to define the condition for generating failure reports. Default is '0' (report if both SPF and DKIM fail).\",\"Consider specifying a 'ruf' tag for forensic reporting.\",\"Subdomain policy isn't specified, they'll default to the main policy instead.\"],\"domain\":[\"Your domain is using TLS 1.3, no further action needed!\"],\"mx\":[\"You have a single mail server setup, but it's recommended that you have at least two setup in case the first one fails.\",\"mx.runbox.com: Failed to reach domain before timeout\"],\"spf\":[\"SPF seems to be setup correctly! No further action needed.\"]}}\n",
+#    0}
 ```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 parsed_dss_domain_scan =
   dss_domain_scan
   |> Jason.decode!()
 ```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 %{
@@ -1018,6 +1040,8 @@ The domain name is not a standard DNS record (from our point of view), so we wil
 <!-- livebook:{"break_markdown":true} -->
 
 To make reading and traversal of our zone easier, a `DnsRecord` structure will store all the relevant information for each record.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.ZoneTree do
@@ -1197,6 +1221,8 @@ defmodule Dns.ZoneTree do
 end
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 defmodule Dns.ZoneTree.RecordChains do
   # The next children list is empty, return current record and end
@@ -1277,6 +1303,8 @@ Functionally, the work is simple, taking a list of each subdomain's (as well as 
 <!-- livebook:{"break_markdown":true} -->
 
 Once two records are selected, the structures aren't compared in depth; only the most important fields—`name`, `type`, and `structured_data`—are compared, as the others are deemed irrelevant (such as `TTL`), or unnecessary, such as `display_name` strings, favouring structured data. When a match is found, a `Map.merge/2` is sufficient to update `child_records`, at which point the match is retried recursively, for instances where there is a long list of `CNAME` redirections before the answer. Long chains of redirections are now quite common, used by external services to create the illusion of a customer's subdomain, pointing to an internal service type, pointing to a cloud region, pointing to an individual cloud server instance, all the way to the server registering the record with the answer.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.ZoneTree.MergeTrees do
@@ -1417,6 +1445,8 @@ end
 
 ## Structuring subdomain records
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 defmodule Dns.ZoneTree.Subdomains do
   def find_subdomains(record_list, options \\ []) when is_list(record_list) do
@@ -1486,6 +1516,8 @@ end
 
 ## Constructing the zone tree
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 defmodule Dns.ZoneTree.Construct do
   def construct_zone_tree(subdomain_list, options \\ []) when is_list(subdomain_list) do
@@ -1509,6 +1541,8 @@ defmodule Dns.ZoneTree.Construct do
 end
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 zone_tree =
   Dns.ZoneTree.Construct.construct_zone_tree(enumerated_subdomains,
@@ -1520,6 +1554,8 @@ zone_tree =
     depth: 0
   )
 ```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.ZoneTree.Height do
@@ -1539,6 +1575,8 @@ end
 ```
 
 ## Traversing the DNS zone tree
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.ZoneTree.RecordList do
@@ -1586,17 +1624,9 @@ defmodule Dns.ZoneTree.RecordList do
 end
 ```
 
-```elixir
-Dns.ZoneTree.RecordList.get_flattened_zone_record_list(zone_tree, %{include_virtual: true})
-```
-
-```elixir
-options =
-  [exclude_virtual: true, a: 2]
-  |> IEx.Helpers.i()
-```
-
 ## DNS record list
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.Visualisation.CSS do
@@ -1708,6 +1738,8 @@ defmodule Dns.Visualisation.CSS do
 end
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 defmodule Dns.Visualisation.ZoneRecordTable do
   def construct_html_zone_table(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
@@ -1757,11 +1789,15 @@ defmodule Dns.Visualisation.ZoneRecordTable do
 end
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 Kino.HTML.new(Dns.Visualisation.ZoneRecordTable.construct_html_zone_table(zone_tree))
 ```
 
 ## Displaying a text-based tree of the zone
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.Visualisation.ZoneRecordTree do
@@ -1848,6 +1884,8 @@ defmodule Dns.Visualisation.ZoneRecordTree do
 end
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 Kino.HTML.new(Dns.Visualisation.ZoneRecordTree.construct_html_zone_tree(zone_tree))
 ```
@@ -1860,14 +1898,20 @@ With the information now gathered, we can create a usable flowchart diagram, pre
 
 To begin with, let's define invariant sections of the diagram definition: initialisation configuration, diagram type and title, and styling. By doing this up front, we're developing the diagram definition in easily managable segments, and defining the diagram in a _literate programming_ style.
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 dns_zone_diagram_configuration =
   """
   %%{ init: { 
     'theme': 'base',
     'themeVariables': {
-      'clusterBkg': '#81a1c144;',
-      'lineColor': '#FFBE98'
+      'clusterBkg': '#60C8B3',
+      'lineColor': '#FFBE98',
+      'primaryColor': '#6699dd',
+      'primaryTextColor': '#ddddff',
+      'textColor': '#ff9999',
+      'nodeTextColor': '#99ff99'
     },
     'fontFamily': 'Calluna Sans, Helvetica, Trebuchet MS, Verdana, Arial, Sans-Serif',
     'flowchart': { 
@@ -1878,26 +1922,45 @@ dns_zone_diagram_configuration =
   """
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 diagram_type = "flowchart LR"
 ```
 
 In the following step, we insert the list of edges by order of definition.
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 diagram_styles =
   """
+  classDef parent-zone fill:#eff5fa,color:#222,stroke:#FFA74F,stroke-width:2px;
   classDef parent-node fill:turquoise,stroke:#b48ead,stroke-width:1px;
-  classDef parent-zone fill:#81a1c144,stroke:#b48ead,stroke-width:1px;
-  classDef cname-record fill:#88c0d088,stroke:#b48ead,stroke-width:1px;
+  classDef parent-node fill:#FFBE98FF,stroke:#FFA74F,stroke-width:5px;
+  classDef soa-record fill:#FFA74F,color:white,stroke:#b48ead,stroke-width:1px;
   classDef ns-record fill:#bf616a44,stroke:#b48ead,stroke-width:1px;
+  classDef ns-record fill:#CE3375,color:white,stroke:#FFBE98,stroke-width:3px;
   classDef mx-record fill:#d0877099,stroke:#b48ead,stroke-width:1px;
-  classDef txt-record fill:#ebcb8b88,stroke:#b48ead,stroke-width:1px;
+  classDef mx-record fill:#E881A6,color:white,stroke:#CE3375,stroke-width:4px;
   classDef a-record fill:#a3be8c99,stroke:#b48ead,stroke-width:1px;
+  classDef a-record fill:#279D9F,color:white,stroke:#60C8B3,stroke-width:5px;
+  classDef aaaa-record fill:#3acdcf,color:white,stroke:#60C8B3,stroke-width:5px;
+  classDef cname-record fill:#88c0d088,stroke:#b48ead,stroke-width:1px;
+  classDef cname-record fill:#1B5091,color:white,stroke:#6EA1D4,stroke-width:5px;
+  classDef subdomain-record fill:#6EA1D4,color:white,stroke:#1B5091,stroke-width:3px;
+  classDef txt-record fill:#ebcb8b88,stroke:#b48ead,stroke-width:1px;
+  classDef txt-record fill:#60C8B3,color:white,stroke:#279D9F,stroke-width:5px;
+  classDef spf-record fill:#60C8B3,color:white,stroke:#279D9F,stroke-width:3px;
+  classDef srv-record fill:#a4e0d4,color:#222,stroke:#279D9F,stroke-width:2px;
+  classDef caa-record fill:#c2eae2,color:#222,stroke:#279D9F,stroke-width:2px;
+  linkStyle default fill:none,stroke-width:3px,stroke:#6EA1D4
   """
 ```
 
 First, we need a module, `ZoneTree` to convert this data into Mermaid flowchart definition code.
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 defmodule Dns.Visualisation.ZoneTreeDiagram do
@@ -1908,22 +1971,18 @@ defmodule Dns.Visualisation.ZoneTreeDiagram do
     date_updated = zone_tree.updated_at |> Calendar.strftime(@iso_date_format_string)
     date_expires = zone_tree.expires_at |> Calendar.strftime(@iso_date_format_string)
 
-    "#{zone_tree.display_name}([\"`#{DomainName.name(zone_tree.name)}
-    —
+    "#{zone_tree.display_name}([\"<div style='padding: 1.5rem;'>#{DomainName.name(zone_tree.name)}
+    <br />
     Created #{date_created}
     Updated #{date_updated}
-    Expiry #{date_expires}`\"]):::parent-node;"
+    Expiry #{date_expires}</div>\"]):::parent-node;"
   end
 
   def define_dns_zone(parent_node_id, record_list)
       when is_bitstring(parent_node_id) and is_list(record_list) do
-    _zone_records =
-      for rec <- record_list do
-        construct_zone_records(parent_node_id, rec)
-      end
-
-    # zone_records
-    # |> Enum.join(";")
+    for rec <- record_list do
+      construct_zone_records(parent_node_id, rec)
+    end
   end
 
   def construct_parent_zone_subgraph(zone_tree) when is_struct(zone_tree, ZoneRootDomain) do
@@ -1935,16 +1994,19 @@ defmodule Dns.Visualisation.ZoneTreeDiagram do
       #{Dns.ZoneTree.RecordList.get_flattened_zone_record_list(zone_tree, %{include_virtual: true}) |> Enum.map(fn record -> record.id <> ";" end)}
 
     end;
+
+    #{zone_tree.display_name}-zone:::parent-zone;
     """
   end
 
   defp construct_zone_records(parent_node_id, record)
        when is_bitstring(parent_node_id) and is_struct(record, DnsRecord) do
-    "#{parent_node_id} #{define_link_type(record.type)} #{record.id}([\"`#{record.display_name} 
-        —
+    "#{parent_node_id} #{define_link_type(record.type)} #{record.id}([\"<div style='padding: 1.5rem;'>#{record.display_name} 
+
     TTL #{record.ttl}
-    #{Enum.join([record.type |> to_string() |> String.upcase(), record.specialised_type |> to_string() |> String.upcase()], " ")}
-    #{if record.type === :mx, do: record.structured_data.priority} #{if record.specialised_type == :dkim and record.type == :txt, do: String.slice(record.data, 0..25) <> "...", else: record.data}`\"])#{attach_style_class(record.type)};
+    <div style='font-size: 1.25rem; font-weight: 900;'>#{Enum.join([record.type |> to_string() |> String.upcase(), record.specialised_type |> to_string() |> String.upcase()], " ")}</div>
+    
+    <div style='margin: 0 auto;' title='#{record.data}'>#{if record.type === :mx, do: record.structured_data.priority} #{if (record.specialised_type == :dkim and record.type == :txt) or record.type == :soa, do: String.slice(record.data, 0..25) <> "...", else: record.data}</div></div>\"])#{attach_style_class(record.type)};
     #{if Map.get(record, :child_records, []) != [], do: define_dns_zone(record.id, record.child_records)}
     #{construct_circular_reference(parent_node_id, record)}"
   end
@@ -1968,11 +2030,17 @@ defmodule Dns.Visualisation.ZoneTreeDiagram do
 
   def attach_style_class(type) when is_atom(type) do
     case type do
-      :a -> ":::a-record"
+      :soa -> ":::soa-record"
       :ns -> ":::ns-record"
       :mx -> ":::mx-record"
-      :txt -> ":::txt-record"
+      :a -> ":::a-record"
+      :aaaa -> ":::aaaa-record"
       :cname -> ":::cname-record"
+      :virtual -> ":::subdomain-record"
+      :txt -> ":::txt-record"
+      :spf -> ":::spf-record"
+      :srv -> ":::srv-record"
+      :caa -> ":::caa-record"
       _ -> ""
     end
   end
@@ -1999,9 +2067,6 @@ nodes_with_relationships =
   Dns.Visualisation.ZoneTreeDiagram.define_dns_zone(zone_tree.display_name, zone_tree.zone_tree)
 
 parent_zone = Dns.Visualisation.ZoneTreeDiagram.construct_parent_zone_subgraph(zone_tree)
-
-# zones =
-#   Dns.Visualisation.ZoneTreeDiagram.define_dns_sub_zones(verified_domain, enumerated_subdomains)
 ```
 
 Feeding this definition string into the scaffolded diagram definition provides us with the complete diagram definition.
@@ -2022,9 +2087,9 @@ dns_zone_diagram =
 
   #{diagram_styles}
   """
-
-# {zones};
 ```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 Kino.Markdown.new(dns_zone_diagram)
@@ -2038,6 +2103,8 @@ The diagram definition, stored in the `dns_zone_diagram` variable, can now be us
 Kino.Mermaid.new(dns_zone_diagram)
 ```
 
+<!-- livebook:{"reevaluate_automatically":true} -->
+
 ```elixir
 Kino.HTML.new(
   """
@@ -2050,6 +2117,8 @@ Kino.HTML.new(
 ```
 
 ## Audit summary and advice
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 Kino.Markdown.new("""
@@ -2088,6 +2157,8 @@ Kino.Markdown.new("""
 **SPF record** _`#{spf_scan_result}`_
 """)
 ```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
 
 ```elixir
 Kino.HTML.new(
