@@ -7,5 +7,6 @@ anomalies or vulnerabilities.
 ## To do
 
 - Clean up Livebook code
+- Document external binaries: subfinder, dss, etc.
 - Fully document code, write up decisions taken, with their reasons
 - Fully document the project in this README file
