@@ -19,16 +19,23 @@ Mix.install([
 To begin, we need user input to know which domain to interrogate, storing the result into the `domain` variable.
 
 ```elixir
-domain = Kino.Input.text("Enter your domain name")
+import Kino.Shorts
+```
+
+```elixir
+domain = read_text("Enter your domain name", default: "")
+
+if domain == "", do: Kino.interrupt!(:error, "You must provide a domain name")
 ```
 
 The following will read and attempt to construct a valid domain name and parrot the user input back to us, as a simple form of feedback. If it fails, then an error will warn us of this at this stage.
 
 ```elixir
-{:ok, verified_domain} =
-  DomainName.new(Kino.Input.read(domain),
-    must_be_hostname: true
-  )
+defmodule Dns.ZoneExplorer.UI do
+  def read_user_input(domain_input) do
+    DomainName.new!(domain_input, must_be_hostname: true)
+  end
+end
 ```
 
 ```elixir
@@ -259,7 +266,10 @@ We now call out to `System.cmd` to run `subfinder` on our domain. Note that ease
 {subfinder_query_result, 0} =
   System.cmd(
     "bash",
-    ["-lc", "#{subfinder_binary} -d #{DomainName.name(verified_domain)} -silent -json -active"],
+    [
+      "-lc",
+      "#{subfinder_binary} -d #{Dns.ZoneExplorer.UI.read_user_input(domain)} -silent -json -active"
+    ],
     stderr_to_stdout: true
   )
 ```
@@ -277,7 +287,9 @@ enumerated_subdomains =
     |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
     |> Map.merge(%{tool: "subfinder"})
   end)
-  |> Enum.filter(fn %{host: host} -> host != DomainName.name(verified_domain) end)
+  |> Enum.filter(fn %{host: host} ->
+    host != DomainName.name(Dns.ZoneExplorer.UI.read_user_input(domain))
+  end)
 ```
 
 ## Core functionality
@@ -927,7 +939,7 @@ end
     "bash",
     [
       "-lc",
-      "#{dss_binary} scan #{DomainName.name(verified_domain)} --advise --checkTls --format json"
+      "#{dss_binary} scan #{DomainName.name(Dns.ZoneExplorer.UI.read_user_input(domain))} --advise --checkTls --format json"
     ],
     stderr_to_stdout: true
   )
@@ -1447,8 +1459,8 @@ end
 ```elixir
 zone_tree =
   Dns.ZoneTree.Construct.construct_zone_tree(enumerated_subdomains,
-    zone_root_domain: verified_domain,
-    parent_domain: verified_domain,
+    zone_root_domain: Dns.ZoneExplorer.UI.read_user_input(domain),
+    parent_domain: Dns.ZoneExplorer.UI.read_user_input(domain),
     dmarc_subdomain_label: dmarc_subdomain_label,
     dkim_subdomain_label: dkim_subdomain_label,
     known_dkim_selector_list: known_dkim_selector_list,
@@ -1560,10 +1572,8 @@ defmodule Dns.Visualisation.CSS do
       border: 1px solid color-mix(in srgb, var(--primary-colour) 70%, white 0%);
       border-radius: 0.5rem;
       box-shadow: 0 0 25px -5px #0000001a, 0 0 10px -5px #0000000a;
-      min-width: 100%;
       padding-left: 2.5rem;
       padding-right: 2.5rem;
-      width: max-content; 
     }
     .record-list-display,
     .figure-caption {
@@ -1609,7 +1619,7 @@ defmodule Dns.Visualisation.CSS do
       text-transform: uppercase;
     }
     .record-data {
-      max-width: 75ex;
+      max-width: 50ex;
      }
     .record-name, .record-data { overflow-wrap: anywhere; }
     .record-depth-0, .record-depth-1, .record-depth-2, 
@@ -1801,7 +1811,6 @@ dns_zone_diagram_configuration =
     'fontFamily': 'Calluna Sans, Helvetica, Trebuchet MS, Verdana, Arial, Sans-Serif',
     'flowchart': { 
       'curve': 'bumpX',
-      'useMaxWidth': 'true'
      } 
     } }%%
   """
@@ -2032,4 +2041,4 @@ Kino.HTML.new(
 )
 ```
 
-<!-- livebook:{"offset":66866,"stamp":{"token":"XCP.Y_1GsmK3f70h3-ruN-nx8HiFOxpC_5NPFpocexDLid41htubp6EeAtA5oQvgC47UAfU4ro7LR3MYfLPPv3O_JscLmontZi8_hFeCqi2hAXURQVs1Cs_fijA-iDiyK_hWOeC_u3k9OcT_3sJhH5EKvKhtRFnRX5zWqMDpA0OYuVvs9NRE84PzmQ","version":2}} -->
+<!-- livebook:{"offset":67098,"stamp":{"token":"XCP.Qp4kUFK1M93CvmzRrN3dbC9ug63CbmvJqRj1ojNSfM_Sg0FuyH6myKZi8eiRUgDjv0CdcFG3Vi_pgjODgOJI8-5HlDtZphDvhcp0_-oz79Sd3CbKyxCYvg_rkf9CIm7jWvQfr0ZDwx2svZHde3viVu3bGuzzzJrdRl7XIYr3L-PEbzPdBfpkFw","version":2}} -->
