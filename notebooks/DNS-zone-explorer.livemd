@@ -14,13 +14,19 @@ Mix.install([
 
 ## Overview
 
-## Domain entry, parsing and querying
+## Domain entry and parsing
 
-To begin, we need user input to know which domain to interrogate, storing the result into the `domain` variable.
+To begin, we need user input specifying which domain to interrogate, storing the input into the `domain` variable.
+
+<!-- livebook:{"break_markdown":true} -->
+
+DNS Zone Explorer relies on the `Kino` library to provide user interaction. `Kino.Shorts` simplifies calling provided functions, so is is imported into the Livebook process up front.
 
 ```elixir
 import Kino.Shorts
 ```
+
+As well as reading user input, Kino will at this point interrupt any further execution if the domain name input is left blank. Not doing this allows Livebook to try to evaluate (all) subsequent sections reliant on this input, resuling in Elixir throwing an error message. Delegating this right away to Kino is _slightly_ more user friendly.
 
 ```elixir
 domain = read_text("Enter your domain name", default: "")
@@ -28,29 +34,12 @@ domain = read_text("Enter your domain name", default: "")
 if domain == "", do: Kino.interrupt!(:error, "You must provide a domain name")
 ```
 
-The following will read and attempt to construct a valid domain name and parrot the user input back to us, as a simple form of feedback. If it fails, then an error will warn us of this at this stage.
+The `read_user_input/1` function takes a `domain_input` argument—the user input field constructed earlier can be passed in—immediately using the `DomainName` library to construct a domain name structure, if the input conforms to the hostname RFC specification, throwing an error otherwise.
 
 ```elixir
 defmodule Dns.ZoneExplorer.UI do
   def read_user_input(domain_input) do
     DomainName.new!(domain_input, must_be_hostname: true)
-  end
-end
-```
-
-```elixir
-defmodule DomainName.Querying do
-  def domain_name_query(domain_name) do
-    domain_name
-    |> DomainName.name()
-    |> Whois.lookup()
-  end
-
-  def get_critical_domain_info(domain_name) do
-    case domain_name_query(domain_name) do
-      {:ok, whois_record} -> whois_record
-      {_, _} -> {:error}
-    end
   end
 end
 ```
@@ -108,6 +97,25 @@ puredns_binary = System.get_env("LB_PUREDNS_BIN")
 subfinder_binary = System.get_env("LB_SUBFINDER_BIN")
 sublist3r_binary = System.get_env("LB_SUBLIST3R_BIN")
 dss_binary = System.get_env("LB_DSS_BIN")
+```
+
+## Querying domain name information (WHOIS query)
+
+```elixir
+defmodule DomainName.Querying do
+  def domain_name_query(domain_name) do
+    domain_name
+    |> DomainName.name()
+    |> Whois.lookup()
+  end
+
+  def get_critical_domain_info(domain_name) do
+    case domain_name_query(domain_name) do
+      {:ok, whois_record} -> whois_record
+      {_, _} -> {:error}
+    end
+  end
+end
 ```
 
 ## Using Erlang's :inet_res builtin functionality
@@ -2041,4 +2049,8 @@ Kino.HTML.new(
 )
 ```
 
-<!-- livebook:{"offset":67098,"stamp":{"token":"XCP.Qp4kUFK1M93CvmzRrN3dbC9ug63CbmvJqRj1ojNSfM_Sg0FuyH6myKZi8eiRUgDjv0CdcFG3Vi_pgjODgOJI8-5HlDtZphDvhcp0_-oz79Sd3CbKyxCYvg_rkf9CIm7jWvQfr0ZDwx2svZHde3viVu3bGuzzzJrdRl7XIYr3L-PEbzPdBfpkFw","version":2}} -->
+## References
+
+
+
+<!-- livebook:{"offset":67821,"stamp":{"token":"XCP.9_WONZe2i6KIA7NAZbc3uveYjHbDA0t6eNnskE75tY7EBmT60T9FeQrq5DssM50agwocDkQXf4hZujdJfR7nlFTyZjhfBa6HB95Ak0DUa-RyrWmADdGOxQlIpBdyYNyDUP0jt458gGr_GPbEUxp6h8wFsfHj14tD9TWiLEVymgRw7CbTvjQTcg","version":2}} -->
