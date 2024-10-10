@@ -7,7 +7,6 @@ anomalies or vulnerabilities.
 ## To do
 
 - Clean up Livebook code
-- Document external binaries: subfinder, dss, etc.
 - Document desirable future work, extending the functionality and power of the tool
   - Using additional auxiliary tools for more information
   - Providing desirable future functionality

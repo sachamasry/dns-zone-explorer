@@ -16,7 +16,7 @@ Mix.install([
 
 ## External Dependencies
 
-A few external programs are used by _DNS Explorer_, in discovering and _teasing out_ subdomains,
+A few external programs are used by _DNS Explorer_, in discovering and _teasing out_ subdomains. The following tools have all been used in discovery at some point:
 
 * [OWASP Amass](https://github.com/owasp-amass/amass), _In-depth attack surface mapping and asset discovery_, with environment variable `LB_AMASS_BIN` pointing to the binary's location
 * [`assetfinder`](https://github.com/tomnomnom/assetfinder), _Find domains and subdomains related to a given domain_, with environment variable `LB_ASSETFINDER_BIN`
@@ -25,6 +25,8 @@ A few external programs are used by _DNS Explorer_, in discovering and _teasing 
 * [`puredns`](https://github.com/d3mondev/puredns), _Puredns is a fast domain resolver and subdomain bruteforcing tool that can accurately filter out wildcard subdomains and DNS poisoned entries_, with environment variable `LB_PUREDNS_BIN`
 * [`subfinder`](https://github.com/projectdiscovery/subfinder), _Fast passive subdomain enumeration tool_, with environment variable `LB_SUBFINDER_BIN`
 * [Sublist3r](https://github.com/aboul3la/Sublist3r), _Fast subdomains enumeration tool for penetration testers_, with environment variable `LB_SUBLIST3R_BIN`
+
+At present, however, the tool actively uses only the Domain Security Scanner (`dss`) and Subfinder tools. Both are easily installed from their respective GitHub repositories. Once installed, set the `DSS_BIN` and `SUBFINDER_BIN` 'secrets' in this Livebook, prior to running a domain scan.
 
 ## Domain entry and parsing
 
@@ -73,7 +75,7 @@ Let's define a set of DKIM selectors in `dkim_selector_list`, as a valid selecto
 ```elixir
 known_dkim_selector_list = [
   # Generic
-  "x",
+  "x", "default",
   # Google
   "google",
   # Microsoft
@@ -95,7 +97,9 @@ known_dkim_selector_list = [
   # MailJet
   "mailjet",
   # Avoccado.ai
-  "pic"
+  "pic",
+  # Protonmail
+  "protonmail"
 ]
 ```
 
@@ -2081,4 +2085,4 @@ Kino.HTML.new(
 
 ## References
 
-<!-- livebook:{"offset":69560,"stamp":{"token":"XCP.Ear5NwjCT5VToymEZIjsT-7XyTZ46RmeRvhvJEA3wyhTNDpbpsztf_iiizpjSEdLiIAw3jQlKHwfddAmQ2tdQpsuIEUIQ2PG2BtLWvr2BBvi8QMFeHdkG3oa3G7VeTiBo_L-cQhaNKjqjBYpHiRrBBcaRBkJaJFOXh-M4KlqUIxiF9fUa1FCP8C8RMFmIKlg","version":2}} -->
+<!-- livebook:{"offset":69959,"stamp":{"token":"XCP.ZK0hbtkui_ylmjQJGwZ2Y2lOwkdwociFbM4q2CKyn-nE7qNa0ey3xXdc9ht-MubVNO69yFzv0OUHPaEmvHG3Qeuf_cTIpaM9NL9Rn6RUA7IJvwO_AOma7BU8PIB0pBAnZLUyBmLv61nLnzY4tqtufHEYa62njKlk9D4zs21-1PRcnEdboPQ2nvXpCtDiCMHZ","version":2}} -->
