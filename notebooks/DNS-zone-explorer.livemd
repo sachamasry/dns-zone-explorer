@@ -14,6 +14,18 @@ Mix.install([
 
 ## Overview
 
+## External Dependencies
+
+A few external programs are used by _DNS Explorer_, in discovering and _teasing out_ subdomains,
+
+* [OWASP Amass](https://github.com/owasp-amass/amass), _In-depth attack surface mapping and asset discovery_, with environment variable `LB_AMASS_BIN` pointing to the binary's location
+* [`assetfinder`](https://github.com/tomnomnom/assetfinder), _Find domains and subdomains related to a given domain_, with environment variable `LB_ASSETFINDER_BIN`
+* [DNSRecon](https://github.com/darkoperator/dnsrecon), _DNS Enumeration Script_, with environment variable `LB_DNSRECON_BIN`
+* [Domain Security Scanner](https://github.com/esig/dss), _Scan domains and receive advice based on their BIMI, DKIM, DMARC, and SPF records_, with environment variable `LB_DSS_BIN`
+* [`puredns`](https://github.com/d3mondev/puredns), _Puredns is a fast domain resolver and subdomain bruteforcing tool that can accurately filter out wildcard subdomains and DNS poisoned entries_, with environment variable `LB_PUREDNS_BIN`
+* [`subfinder`](https://github.com/projectdiscovery/subfinder), _Fast passive subdomain enumeration tool_, with environment variable `LB_SUBFINDER_BIN`
+* [Sublist3r](https://github.com/aboul3la/Sublist3r), _Fast subdomains enumeration tool for penetration testers_, with environment variable `LB_SUBLIST3R_BIN`
+
 ## Domain entry and parsing
 
 To begin, we need user input specifying which domain to interrogate, storing the input into the `domain` variable.
@@ -282,13 +294,30 @@ We now call out to `System.cmd` to run `subfinder` on our domain. Note that ease
   )
 ```
 
+```elixir
+subfinder_query_result =
+  subfinder_query_result
+  |> String.split("\n")
+  |> Enum.filter(fn rec -> rec != "" end)
+
+subfinder_query_result_length = length(subfinder_query_result)
+
+subfinder_query_result =
+  cond do
+    subfinder_query_result_length > 1 ->
+      [_head | tail] = subfinder_query_result
+      tail
+
+    true ->
+      ""
+  end
+```
+
 With query results saved to `subfinder_query_results`, we now need to clean up the results by splitting away newline characters (`\n`), filtering out empty strings, and parsing the JSON results.
 
 ```elixir
 enumerated_subdomains =
   subfinder_query_result
-  |> String.split("\n")
-  |> Enum.filter(fn rec -> rec != "" end)
   |> Enum.map(fn rec -> Jason.decode!(rec) end)
   |> Enum.map(fn m ->
     m
@@ -947,7 +976,8 @@ end
     "bash",
     [
       "-lc",
-      "#{dss_binary} scan #{DomainName.name(Dns.ZoneExplorer.UI.read_user_input(domain))} --advise --checkTls --format json"
+      # "#{dss_binary} scan #{DomainName.name(Dns.ZoneExplorer.UI.read_user_input(domain))} --advise --checkTls --format json"
+      "#{dss_binary} scan #{DomainName.name(Dns.ZoneExplorer.UI.read_user_input(domain))} --advise --format json"
     ],
     stderr_to_stdout: true
   )
@@ -2051,6 +2081,4 @@ Kino.HTML.new(
 
 ## References
 
-
-
-<!-- livebook:{"offset":67821,"stamp":{"token":"XCP.9_WONZe2i6KIA7NAZbc3uveYjHbDA0t6eNnskE75tY7EBmT60T9FeQrq5DssM50agwocDkQXf4hZujdJfR7nlFTyZjhfBa6HB95Ak0DUa-RyrWmADdGOxQlIpBdyYNyDUP0jt458gGr_GPbEUxp6h8wFsfHj14tD9TWiLEVymgRw7CbTvjQTcg","version":2}} -->
+<!-- livebook:{"offset":69560,"stamp":{"token":"XCP.Ear5NwjCT5VToymEZIjsT-7XyTZ46RmeRvhvJEA3wyhTNDpbpsztf_iiizpjSEdLiIAw3jQlKHwfddAmQ2tdQpsuIEUIQ2PG2BtLWvr2BBvi8QMFeHdkG3oa3G7VeTiBo_L-cQhaNKjqjBYpHiRrBBcaRBkJaJFOXh-M4KlqUIxiF9fUa1FCP8C8RMFmIKlg","version":2}} -->
