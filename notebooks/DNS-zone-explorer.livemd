@@ -1735,7 +1735,17 @@ end
 ```
 
 ```elixir
-Kino.HTML.new(Dns.Visualisation.ZoneRecordTable.construct_html_zone_table(zone_tree))
+html_zone_tree =
+  Dns.Visualisation.ZoneRecordTable.construct_html_zone_table(zone_tree)
+
+Kino.render(
+  Kino.Download.new(fn -> html_zone_tree end,
+    label: "Download DNS zone record table",
+    filename: "#{domain}-DNS_zone_record_table.html"
+  )
+)
+
+Kino.HTML.new(html_zone_tree)
 ```
 
 ## Displaying a text-based tree of the zone
@@ -1826,7 +1836,17 @@ end
 ```
 
 ```elixir
-Kino.HTML.new(Dns.Visualisation.ZoneRecordTree.construct_html_zone_tree(zone_tree))
+hierarchical_dns_zone_tree =
+  Dns.Visualisation.ZoneRecordTree.construct_html_zone_tree(zone_tree)
+
+Kino.render(
+  Kino.Download.new(fn -> hierarchical_dns_zone_tree end,
+    label: "Download hierarchical DNS zone record table",
+    filename: "#{domain}-DNS_zone_record_table_with_hierarchy.html"
+  )
+)
+
+Kino.HTML.new(hierarchical_dns_zone_tree)
 ```
 
 ## Visualising the DNS zone
@@ -2085,4 +2105,4 @@ Kino.HTML.new(
 
 ## References
 
-<!-- livebook:{"offset":69959,"stamp":{"token":"XCP.ZK0hbtkui_ylmjQJGwZ2Y2lOwkdwociFbM4q2CKyn-nE7qNa0ey3xXdc9ht-MubVNO69yFzv0OUHPaEmvHG3Qeuf_cTIpaM9NL9Rn6RUA7IJvwO_AOma7BU8PIB0pBAnZLUyBmLv61nLnzY4tqtufHEYa62njKlk9D4zs21-1PRcnEdboPQ2nvXpCtDiCMHZ","version":2}} -->
+<!-- livebook:{"offset":70421,"stamp":{"token":"XCP.KUSfKMpf2bwgUkr-bugpXl05Pnip0sGbfLmrDLu8aFgS1QPYC1RR5mXnNX9yhD3cyMhsMh08MbkT5mQLGC-tklOqaxxfAmMYIbRDMbuDFOiV5CPBzMLK-Yw3AiwisEUptDEM_sdAk0F1M1pJ2_J1PjcBAgbpXeBOkKHgDgM6gn7Ir8nShmJuXUZjKgNvYBqR","version":2}} -->
