@@ -21,7 +21,7 @@ A few external programs are used by _DNS Explorer_, in discovering and _teasing 
 * [OWASP Amass](https://github.com/owasp-amass/amass), _In-depth attack surface mapping and asset discovery_, with environment variable `LB_AMASS_BIN` pointing to the binary's location
 * [`assetfinder`](https://github.com/tomnomnom/assetfinder), _Find domains and subdomains related to a given domain_, with environment variable `LB_ASSETFINDER_BIN`
 * [DNSRecon](https://github.com/darkoperator/dnsrecon), _DNS Enumeration Script_, with environment variable `LB_DNSRECON_BIN`
-* [Domain Security Scanner](https://github.com/esig/dss), _Scan domains and receive advice based on their BIMI, DKIM, DMARC, and SPF records_, with environment variable `LB_DSS_BIN`
+* [Domain Security Scanner](https://github.com/GlobalCyberAlliance/domain-security-scanner/), _Scan domains and receive advice based on their BIMI, DKIM, DMARC, and SPF records_, with environment variable `LB_DSS_BIN`
 * [`puredns`](https://github.com/d3mondev/puredns), _Puredns is a fast domain resolver and subdomain bruteforcing tool that can accurately filter out wildcard subdomains and DNS poisoned entries_, with environment variable `LB_PUREDNS_BIN`
 * [`subfinder`](https://github.com/projectdiscovery/subfinder), _Fast passive subdomain enumeration tool_, with environment variable `LB_SUBFINDER_BIN`
 * [Sublist3r](https://github.com/aboul3la/Sublist3r), _Fast subdomains enumeration tool for penetration testers_, with environment variable `LB_SUBLIST3R_BIN`
@@ -2105,4 +2105,4 @@ Kino.HTML.new(
 
 ## References
 
-<!-- livebook:{"offset":70421,"stamp":{"token":"XCP.KUSfKMpf2bwgUkr-bugpXl05Pnip0sGbfLmrDLu8aFgS1QPYC1RR5mXnNX9yhD3cyMhsMh08MbkT5mQLGC-tklOqaxxfAmMYIbRDMbuDFOiV5CPBzMLK-Yw3AiwisEUptDEM_sdAk0F1M1pJ2_J1PjcBAgbpXeBOkKHgDgM6gn7Ir8nShmJuXUZjKgNvYBqR","version":2}} -->
+<!-- livebook:{"offset":70457,"stamp":{"token":"XCP.uO0hVlARJ11VgsfqHIiehngXYE-xkvnW3FDhsKc7fJ3IGmAOfDsGM88tIV5-ttsETkr2aKTpiplui3wRfAKuokkIJAqtPQIl3C23ggj4zWqHxsPW68WDdWh6Wh-nfje-3mKbdgPUOzyEyg32jt4FK66EC2gIRTUGAy17dmE3xihUecAVtZ8bhXjUQQzlui1J","version":2}} -->
