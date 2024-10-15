@@ -4,11 +4,10 @@
 
 ```elixir
 Mix.install([
-  {:kino, "~> 0.12.3"},
-  {:kino_shell, "~> 0.1.2"},
   {:jason, "~> 1.4"},
   {:domainname, "~> 0.1.5"},
-  {:whois, "~> 0.2.1"}
+  {:whois, "~> 0.2.1"},
+  {:kino, "~> 0.14.1"},
 ])
 ```
 
@@ -2844,4 +2843,4 @@ Kino.HTML.new(
 
 ## References
 
-<!-- livebook:{"offset":90274,"stamp":{"token":"XCP.fzTIWr2PMV_KBS14GHcN4eSdIE6tJOQQ6FPY3qVGwPQ5FfVlM5ayfVNe5RhIvkSOPi11lCW0ekNEVhnqAngyG_j2bxERUBV4wF7aVqeeffbYBVCTd-ZOV5GT_lJt_dCyoE9F8gz0yjR15wRon_FVph26N7ZfIXZiuB8r-z4vkEfB9ysexKT5k8wQSm05UfKy","version":2}} -->
+<!-- livebook:{"offset":90246,"stamp":{"token":"XCP.3x2rY645hgzV2vv00HRlBCQ2GRPO0kI-NS1xiHHQ5KVqvfOoyvHltMmwDJviWF2udBzJ-fs-PstFSy9Yk1IZIPRQrGjXgSmSBj-qspC8YT3LtvtKRD0Esqd5x9I6ltf9cTf9C9USXH2KJcMg6wPXxYh2Pe1oVXK7EAZEJ-ngbrb7d_4eZRghVGLYAQJeNm3V","version":2}} -->
