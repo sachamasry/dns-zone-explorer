@@ -7,7 +7,8 @@ Mix.install([
   {:jason, "~> 1.4"},
   {:domainname, "~> 0.1.5"},
   {:whois, "~> 0.2.1"},
-  {:kino, "~> 0.14.1"},
+  # {:kino, "~> 0.14.1"},
+  {:kino, "~> 0.14.1", github: "livebook-dev/kino"}
 ])
 ```
 
@@ -71,34 +72,49 @@ bimi_subdomain_label = "_bimi"
 
 Let's define a set of DKIM selectors in `dkim_selector_list`, as a valid selector is needed to query for a DKIM key.
 
+<!-- livebook:{"break_markdown":true} -->
+
+Lists of known DKIM selectors, mined from a range of locations: articles and forum discussions on the internet:
+
+* [Email Provider Commonly Used DKIM Selectors](https://help.sendmarc.com/email-provider-commonly-used-dkim-selectors)
+* [List of most common DKIM selectors? (Reddit)](https://www.reddit.com/r/DMARC/comments/1bffol7/list_of_most_common_dkim_selectors/)
+
 ```elixir
 known_dkim_selector_list = [
   # Generic
-  "x", "default",
+  "default", "dkim", "email", "mail", "x", 
   # Google
   "google",
   # Microsoft
-  "selector1",
-  # Microsoft
-  "selector2",
-  # MailChimp
-  "k1",
-  # Mandrill
-  "mandrill",
-  # Everlytic
-  "everlytickey1",
-  # Everlytic
-  "everlytickey2",
-  # Hetzner
-  "dkim",
-  # MxVault 
-  "mxvault",
-  # MailJet
-  "mailjet",
+  "selector1", "selector2",
   # Avoccado.ai
   "pic",
+  # Blackbaud, eTapestry
+  "sm",
+  # ConstantContact
+  "ctct1", "ctct2",
+  # Everlytic
+  "everlytickey1", "everlytickey2", "eversrv",
+  # Global Micro
+  "mxvault",
+  # Hetzner
+  "dkim",
+  # iCloud
+  "sig1",
+  # MailChimp/Mandrill
+  "k1", "k2", "mandrill",
+  # Mailerlite
+  "litesrv",
+  # MailJet
+  "mailjet",
+  # MxVault 
+  "mxvault",
+  # Nationbuilder
+  "s1", "s2",
   # Protonmail
-  "protonmail"
+  "protonmail",
+  # ZenDesk
+  "zendesk1", "zendesk2"
 ]
 ```
 
@@ -2843,4 +2859,4 @@ Kino.HTML.new(
 
 ## References
 
-<!-- livebook:{"offset":90246,"stamp":{"token":"XCP.3x2rY645hgzV2vv00HRlBCQ2GRPO0kI-NS1xiHHQ5KVqvfOoyvHltMmwDJviWF2udBzJ-fs-PstFSy9Yk1IZIPRQrGjXgSmSBj-qspC8YT3LtvtKRD0Esqd5x9I6ltf9cTf9C9USXH2KJcMg6wPXxYh2Pe1oVXK7EAZEJ-ngbrb7d_4eZRghVGLYAQJeNm3V","version":2}} -->
+<!-- livebook:{"offset":90937,"stamp":{"token":"XCP.B6Bly3-HCvJAQvBOMKt8TjuQ-Gy2h-idYISfx_ESKtFO7G15UupgwVQlbHoHXLmcBl5-2FK4LpU2R_GTSh7UAafCyGkuzhmFawm5T4bqVvTIo2C4liz-MBTFCZIuMv6fk7dd2TfxA2Trd-7RO5MHqVtTDUXmbdvaPCQjaQgSDwxF2KldTwEhqhl-bFBFc-ya","version":2}} -->
