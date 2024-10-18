@@ -87,10 +87,20 @@ known_dkim_selector_list = [
   "google",
   # Microsoft
   "selector1", "selector2",
+  # ACOUSTIC DKIM SELECTOR:
+  "spop1024",
+  # ActiveCampaign
+  "dk",
   # Avoccado.ai
   "pic",
+  # Aruba.it
+  "a1",
+  # AWEBER DKIM SELECTOR:
+  "aweber_key_a", "aweber_key_b", "aweber_key_c",
   # Blackbaud, eTapestry
   "sm",
+  # CAMPAIGN MONITOR DKIM SELECTOR:
+  "cm",
   # ConstantContact
   "ctct1", "ctct2",
   # Everlytic
@@ -362,7 +372,7 @@ subfinder_query_result =
       tail
 
     true ->
-      ""
+      []
   end
 ```
 
@@ -2859,4 +2869,4 @@ Kino.HTML.new(
 
 ## References
 
-<!-- livebook:{"offset":90937,"stamp":{"token":"XCP.B6Bly3-HCvJAQvBOMKt8TjuQ-Gy2h-idYISfx_ESKtFO7G15UupgwVQlbHoHXLmcBl5-2FK4LpU2R_GTSh7UAafCyGkuzhmFawm5T4bqVvTIo2C4liz-MBTFCZIuMv6fk7dd2TfxA2Trd-7RO5MHqVtTDUXmbdvaPCQjaQgSDwxF2KldTwEhqhl-bFBFc-ya","version":2}} -->
+<!-- livebook:{"offset":91147,"stamp":{"token":"XCP.cDpz65P33UhH3tCYN31-6emx0yIIF6mj31ikqMIsGNPVCuSIJmfO9FG15V68iDrVi5I69-ejBWDU2e6T8EkUAESTs7Fgg-a5VjL6Ni_T14lPHiQcxkXC0aHijJ-OIjWDyD-jYD1HUzR411cAi-7IqLoMD4APBNC2M4TYCSYn-7JX_d3UAt34q9IHx0QyhevI","version":2}} -->
