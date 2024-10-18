@@ -78,6 +78,7 @@ Lists of known DKIM selectors, mined from a range of locations: articles and for
 
 * [Email Provider Commonly Used DKIM Selectors](https://help.sendmarc.com/email-provider-commonly-used-dkim-selectors)
 * [List of most common DKIM selectors? (Reddit)](https://www.reddit.com/r/DMARC/comments/1bffol7/list_of_most_common_dkim_selectors/)
+* [The Handbook of Email Service Providers](https://topdeliverability.com/email-service-providers-handbook/)
 
 ```elixir
 known_dkim_selector_list = [
@@ -103,24 +104,52 @@ known_dkim_selector_list = [
   "cm",
   # ConstantContact
   "ctct1", "ctct2",
+  # CONTACTLAB DKIM SELECTOR:
+  "clab1",
+  # DOTDIGITAL DKIM SELECTOR:
+  "dkim1024",
+  # EMARSYS DKIM SELECTOR:
+  "key1", "key2",
+  # EMMA DKIM SELECTOR:
+  "e2ma-k1", "e2ma-k2", "e2ma-k3",
   # Everlytic
   "everlytickey1", "everlytickey2", "eversrv",
   # Global Micro
   "mxvault",
+  # GODADDY/MAD MIMI DKIM SELECTOR:
+  "sable",
   # Hetzner
   "dkim",
+  # HUBSPOT DKIM SELECTOR:
+  "hs1", "hs2",
   # iCloud
   "sig1",
+  # KLAVIYO DKIM SELECTOR:
+  "kl", "kl2",
+  # LISTRAK DKIM SELECTOR:
+  "key1",
   # MailChimp/Mandrill
   "k1", "k2", "mandrill",
   # Mailerlite
   "litesrv",
+  # MAILGUN DKIM SELECTOR:
+  "k1",
   # MailJet
   "mailjet",
+  # MAILPOET DKIM SELECTOR:
+  "mailpoet1", "mailpoet2",
+  # MAILUP DKIM SELECTOR:
+  "m101", "m102",
+  # MAPP DIGITAL DKIM SELECTOR:
+  "ecm1",
   # MxVault 
   "mxvault",
-  # Nationbuilder
+  # Nationbuilder, Sharpspring
   "s1", "s2",
+  # NETCORE DKIM SELECTOR:
+  "nce2048",
+  # OMNISEND DKIM SELECTOR:
+  "smtp",
   # Protonmail
   "protonmail",
   # ZenDesk
@@ -2869,4 +2898,4 @@ Kino.HTML.new(
 
 ## References
 
-<!-- livebook:{"offset":91147,"stamp":{"token":"XCP.cDpz65P33UhH3tCYN31-6emx0yIIF6mj31ikqMIsGNPVCuSIJmfO9FG15V68iDrVi5I69-ejBWDU2e6T8EkUAESTs7Fgg-a5VjL6Ni_T14lPHiQcxkXC0aHijJ-OIjWDyD-jYD1HUzR411cAi-7IqLoMD4APBNC2M4TYCSYn-7JX_d3UAt34q9IHx0QyhevI","version":2}} -->
+<!-- livebook:{"offset":91882,"stamp":{"token":"XCP.4OI-3t0kNOsl1WJr-e3nDkVI3xDaFJHEa8wpUueKJiTYnFXpfTq8pwHm4xFYmvV_YkUaT-rJxrL0_dlpCYaKmb605Vy4RGBPpJYmw7JVh5vEPP98DqPUyWo6BAjw80BvGqJU4_Q6tEJHiTuxGNvo1aBeNDk9OCkqNAJvtJhPU2wFdqzlxozYz06svTnRG5lK","version":2}} -->

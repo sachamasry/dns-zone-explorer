@@ -2,6 +2,15 @@
 
 # Roadmap, or exploration of future functionality
 
+## Roadmap
+
+* [ ] Incorporate all DKIM selectors found on the internet to improve the general use of the audit tool
+* [ ] Refactor all code; rebuild into a full `mix` project, carefully documenting all expected interactions, along with lots of doc-, unit, property and type specification testing
+* [ ] Build a DKIM key checker and verifier
+* [ ] Build DKIM key and record generator
+* [ ] Build SPF record generator
+* [ ] Build DMARC record generator
+
 ## Interesting future functionality
 
 In addition to checking SPF, DKIM, and DMARC records for a domain, there are several other useful and practical functionalities that you could include in your domain auditing system. These additional features would enhance security, performance, and overall health checks for the domain. Here’s a comprehensive list of features you might want to consider:
