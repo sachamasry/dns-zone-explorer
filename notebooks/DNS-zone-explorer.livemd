@@ -7,8 +7,8 @@ Mix.install([
   {:jason, "~> 1.4"},
   {:domainname, "~> 0.1.5"},
   {:whois, "~> 0.2.1"},
-  # {:kino, "~> 0.14.1"},
-  {:kino, "~> 0.14.1", github: "livebook-dev/kino"}
+  {:kino, "~> 0.14.1"},
+  # {:kino, "~> 0.14.1", github: "livebook-dev/kino"}
 ])
 ```
 
@@ -155,6 +155,147 @@ known_dkim_selector_list = [
   # ZenDesk
   "zendesk1", "zendesk2"
 ]
+```
+
+```elixir
+further_dkim_selector_list = 
+  [
+   k%N1,20%
+class
+s%L384,512,768,1024,2048%
+m%L384,512,768,1024,2048%
+smtpapi
+dkim
+bfi
+spop
+spop1024
+beta
+domk
+key%N1,20%
+dk
+ei
+yesmail%N1,20%
+smtpout
+sm
+selector%N1,20%
+authsmtp
+alpha
+v%N1,5%
+mesmtp
+cm
+prod
+pm
+gamma
+dkrnt
+dkimrnt
+private
+gmmailerd
+pmta
+m%N1,20%
+x
+selector
+qcdkim
+postfix
+mikd
+main
+m
+dk20050327
+delta
+yibm
+wesmail
+test
+stigmate
+squaremail
+sitemail
+sel%N1,20%
+sasl
+sailthru
+rsa%N1,20%
+responsys
+publickey
+proddkim
+my%N1,20%
+mail-in
+ls%N1,20%
+key
+ED-DKIM
+ebmailerd
+eb%N1,20%
+dk%N1,20%
+Corporate
+care
+0xdeadbeef
+yousendit
+www
+tilprivate
+testdk
+snowcrash
+smtpcomcustomers
+smtpauth
+smtp
+sl%N1,20%
+sl
+sharedpool
+ses
+server
+scooby
+scarlet
+safe
+s
+s%N1,20%
+pvt
+primus
+primary
+postfix.private
+outbound
+originating
+one
+neomailout
+mx
+msa
+monkey
+mkt
+mimi
+mdaemon
+mailrelay
+mailjet
+mail-dkim
+mailo
+mandrill
+lists
+iweb
+iport
+id
+hubris
+googleapps
+global
+gears
+exim4u
+exim
+et
+dyn
+duh
+dksel
+dkimmail
+corp
+centralsmtp
+ca
+bfi
+auth
+allselector
+zendesk1
+; search rules
+
+; uncreative
+dk%N01,20%
+dk%N1,9%
+dkim%N01,20%
+dkim%N1,9%
+dkim
+proddkim
+testdkim
+%Ldkim,dk,testdkim,proddkim%%L256,384,512,768,1024,2048% 
+  ]
 ```
 
 Let's get locations of all subdomain enumeration tools we may need, into variables we can use.
@@ -343,10 +484,6 @@ defmodule Dns.Query do
 end
 ````
 
-```elixir
-# Dns.Query.construct_subdomain_host("ochm.ca", "")
-```
-
 As any record query may return a `CNAME`—or a _canonical name_—response, which the client will immediately query all the way until it encounters a non-CNAME response, we will receive a response list. This possibility needs to be checked, as it means getting multiple answer records, and this needs to be handled appropriately.
 
 Two ways present themselves, the quick one being to discard all but the last record in the list, as this is likely to be the final one, and the one we actually want. Doing this, however, means eliding potentially useful information, at least for debugging, as it would not be clear how we came to the final record, without seeing the alias traversals within. In cases of DNS cache poisoning, or even Man-in-the-Middle (MITM) attacks, discovering unexpected `CNAME` records is critical in helping spot vulnerabilities, so they should be kept and reported on for a full picture of the state of the zone. Showing the full redirection picture aids in upholding the _principle of least astonishment_, in that it shouldn't cause surprise or consternation to systems administrators, or those developers who are not aware of every infrastructure decision taken to date.
@@ -409,16 +546,22 @@ With query results saved to `subfinder_query_results`, we now need to clean up t
 
 ```elixir
 enumerated_subdomains =
-  subfinder_query_result
-  |> Enum.map(fn rec -> Jason.decode!(rec) end)
-  |> Enum.map(fn m ->
-    m
-    |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
-    |> Map.merge(%{tool: "subfinder"})
-  end)
-  |> Enum.filter(fn %{host: host} ->
-    host != DomainName.name(Dns.ZoneExplorer.UI.read_user_input(domain))
-  end)
+  case subfinder_query_result do
+    [] ->
+      []
+
+    _ ->
+      subfinder_query_result
+      |> Enum.map(fn rec -> Jason.decode!(rec) end)
+      |> Enum.map(fn m ->
+        m
+        |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+        |> Map.merge(%{tool: "subfinder"})
+      end)
+      |> Enum.filter(fn %{host: host} ->
+        host != DomainName.name(Dns.ZoneExplorer.UI.read_user_input(domain))
+      end)
+  end
 ```
 
 ## Core functionality
@@ -1575,595 +1718,6 @@ zone_tree =
 ```
 
 ```elixir
-tree = 
-  %ZoneRootDomain{
-  name: nil,
-  display_name: "ochm.ca",
-  depth: 0,
-  registrar: "Webnames.ca Inc.",
-  nameservers: ["ns.inmotionhosting.com", "ns2.inmotionhosting.com"],
-  created_at: ~N[2001-02-15 02:13:32],
-  updated_at: ~N[2024-08-01 15:02:41],
-  expires_at: ~N[2025-02-14 05:00:00],
-  queried_at: ~N[2024-10-12 21:42:42.261312],
-  query_tool: "whois: Elixir WHOIS client and parser",
-  zone_tree: [
-    %DnsRecord{
-      id: "SOA-ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 0,
-      type: :soa,
-      class: :in,
-      specialised_type: nil,
-      data: "Master name: ns1.inmotionhosting.com, Responsible contact: machinemessages.forum.inmotionhosting.com, Serial number: 2024092600, Refresh time: 86400, Retry time: 7200, Expire time: 3600000, Minimum TTL: 86400",
-      structured_data: %{
-        serial: 2024092600,
-        retry: 7200,
-        refresh: 86400,
-        mname: ~c"ns1.inmotionhosting.com",
-        rname: ~c"machinemessages.forum.inmotionhosting.com",
-        expire: 3600000,
-        minimum: 86400
-      },
-      ttl: 86272,
-      query_tool: "inet_res",
-      answer_source: "SOA query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "NS-1-ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "NS 1",
-      inside_zone: true,
-      depth: 1,
-      weight: 5,
-      type: :ns,
-      class: :in,
-      specialised_type: nil,
-      data: "ns1.inmotionhosting.com",
-      structured_data: nil,
-      ttl: 86288,
-      query_tool: "inet_res",
-      answer_source: "NS query, NS query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "A-ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 10,
-      type: :a,
-      class: :in,
-      specialised_type: nil,
-      data: "173.231.229.144",
-      structured_data: %{raw_data: {173, 231, 229, 144}},
-      ttl: 772,
-      query_tool: "inet_res",
-      answer_source: "A query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-cpanel.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "cpanel.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-cpanel.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "cpanel.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-          data: "173.231.229.144",
-          structured_data: %{raw_data: {173, 231, 229, 144}},
-          ttl: 14289,
-          query_tool: "inet_res",
-          answer_source: "A query",
-          child_records: []
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-cpcalendars.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "cpcalendars.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-cpcalendars.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "cpcalendars.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-          data: "173.231.229.144",
-          structured_data: %{raw_data: {173, 231, 229, 144}},
-          ttl: 14316,
-          query_tool: "inet_res",
-          answer_source: "A query",
-          child_records: []
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-cpcontacts.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "cpcontacts.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-cpcontacts.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "cpcontacts.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-          data: "173.231.229.144",
-          ttl: 14319,
-          query_tool: "inet_res",
-          answer_source: "A query",
-          child_records: []
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-elearning.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "elearning.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-elearning.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "elearning.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-          data: "173.231.229.144",
-          structured_data: %{raw_data: {173, 231}},
-          ttl: 790,
-          query_tool: "inet_res",
-          answer_source: "A query"
-        },
-        %DnsRecord{
-          id: "TXT-dkim-default._domainkey.elearning.ochm.ca",
-          label: "default",
-          name: nil,
-          display_name: ~c"default._domainkey.elearning.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 30,
-          type: :txt,
-          class: :in,
-          specialised_type: :dkim,
-          ttl: 14290,
-          query_tool: "inet_res"
-        },
-        %DnsRecord{
-          id: "TXT-spf-elearning.ochm.ca",
-          label: "",
-          name: nil,
-          display_name: ~c"elearning.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 30,
-          type: :txt,
-          class: :in,
-          specialised_type: :spf,
-          data: "v=spf1 ip4:173.231.229.144 ip4:192.145.239.221 include:smtp.servconfig.com ip4:192.145.239.222 +mx +a +ip4:23.235.221.57 ~all",
-          structured_data: %{raw_data: []},
-          ttl: 14290
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-elearning.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "elearning.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-elearning.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "elearning.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-          data: "173.231.229.144",
-          ttl: 789,
-          query_tool: "inet_res",
-        },
-        %DnsRecord{
-          id: "SUBDOMAIN-www.elearning.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "www.elearning.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 12,
-          type: :virtual,
-          class: :in,
-          specialised_type: :subdomain,
-          data: "",
-          structured_data: %{},
-          ttl: nil,
-        },
-        %DnsRecord{
-          id: "TXT-dkim-default._domainkey.elearning.ochm.ca",
-          label: "default",
-          name: nil,
-          display_name: ~c"default._domainkey.elearning.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 30,
-          type: :txt,
-          class: :in,
-          specialised_type: :dkim,
-          data: "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlOwGxaMLEdWoMvi0MFCCiJumTAnis9KHgA5470gFJLLxg9lQDhfgc5E2XqkPh2XwIYIkEtZr6vZvWaFcu6awBL11/HGH6Fh89MLlW1sfRQXtD7TQd1p8x7zwK0s5mxzZwhn8ov0fFHKXROtYgeIjAGXzaMd5xkwnS72D8QtS6+T+/lesDEEU9c6EOOKrZOIN6 g4fKiGezyZTh7WccJOWMZE13SKi2FWtn3dFBrPaJOFS/n8Xkj9PhPtKZ49OYhqa2yR/R3uwWdBeUVqR9h28p0V0IVpyNPe69Hw4eUrCnVjKy0fnWcppyCQRsoBmocUgReM/IlI2zNPQhpTq9nRDXQIDAQAB;",
-        },
-        %DnsRecord{
-          id: "TXT-spf-elearning.ochm.ca",
-          label: "",
-          name: nil,
-          display_name: ~c"elearning.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 30,
-          type: :txt,
-          class: :in,
-          specialised_type: :spf,
-          data: "v=spf1 ip4:173.231.229.144 ip4:192.145.239.221 include:smtp.servconfig.com ip4:192.145.239.222 +mx +a +ip4:23.235.221.57 ~all",
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-mail.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "mail.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-mail.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "mail.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-          data: "173.231.229.144",
-          ttl: 770,
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-webdisk.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "webdisk.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-webdisk.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "webdisk.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-          data: "173.231.229.144",
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-webmail.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "webmail.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-webmail.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "webmail.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-          data: "173.231.229.144",
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "SUBDOMAIN-whm.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "whm.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 12,
-      type: :virtual,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "",
-      structured_data: %{},
-      ttl: nil,
-      query_tool: "subfinder",
-      answer_source: "leakix",
-      child_records: [
-        %DnsRecord{
-          id: "A-whm.ochm.ca",
-          label: nil,
-          name: nil,
-          display_name: "whm.ochm.ca",
-          inside_zone: true,
-          depth: 2,
-          weight: 10,
-          type: :a,
-          class: :in,
-          specialised_type: nil,
-        }
-      ]
-    },
-    %DnsRecord{
-      id: "CNAME-www.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "www.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 18,
-      type: :cname,
-      class: :in,
-      specialised_type: :subdomain,
-      data: "ochm.ca",
-      structured_data: nil, 
-      ttl: 810,
-      query_tool: "inet_res",
-      answer_source: "CNAME query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "MX-mail.ochm.ca",
-      label: nil,
-      name: nil,
-      display_name: "MX ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 20,
-      type: :mx,
-      class: :in,
-      specialised_type: nil,
-      data: "mail.ochm.ca",
-      structured_data: nil,
-      ttl: 788,
-      query_tool: "inet_res",
-      answer_source: "MX query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "TXT-dkim-default._domainkey.ochm.ca",
-      label: "default",
-      name: nil,
-      display_name: ~c"default._domainkey.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 30,
-      type: :txt,
-      class: :in,
-      specialised_type: :dkim,
-      data: "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs44O6e5U0sTPXbAfYcseNsyJSlLIxww00gn6mUTepUHnFLXb38W0bLn1WAZpCKlJwFMcmXt/2bM6SUL/osT6TFWCCUAhWgtVMWr689siKoMRYVOHWl1iWxrbUlIMTeS9sKAWj7Bl4a8ptobnw8j8fGfGuLcxVJ/dj7KZDkD3Q1+sXJYhG7mxE7Yqrt0MF7w6U 7xRWLTqpxWivV4yaFeiRXt7RK7yl0ZkBjpXdnBln7pkkMUyXKxhBLNBMrmLsNO2MmakaArF/8H7wvUxOb1v3lDmEhw8uLMHbULmfg3Rsk1sqqJK1oZthEZabZV1VVSJaSKJmUOsjg7a8KGcyOyNDQIDAQAB;",
-      ttl: 14289,
-      query_tool: "inet_res",
-      answer_source: "DKIM query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "TXT-dmarc-_dmarc.ochm.ca",
-      label: "_dmarc",
-      name: nil,
-      display_name: ~c"_dmarc.ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 30,
-      type: :txt,
-      class: :in,
-      specialised_type: :dmarc,
-      data: "v=DMARC1;p=none;sp=none;adkim=r;aspf=r;pct=100;fo=0;rf=afrf;ri=86400",
-      structured_data: %{
-        raw_data: [~c"v=DMARC1;p=none;sp=none;adkim=r;aspf=r;pct=100;fo=0;rf=afrf;ri=86400"]
-      },
-      ttl: 14289,
-      query_tool: "inet_res",
-      answer_source: "DMARC query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "TXT-ochm.ca",
-      label: "",
-      name: nil,
-      display_name: ~c"ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 30,
-      type: :txt,
-      class: :in,
-      specialised_type: nil,
-      data: "google-site-verification=RK7tK_WEsGtR2qBF-EHrph5Xv0Rl1qwQGoxXX7fTCN8",
-      structured_data: %{
-        raw_data: [~c"google-site-verification=RK7tK_WEsGtR2qBF-EHrph5Xv0Rl1qwQGoxXX7fTCN8"]
-      },
-      ttl: 14289,
-      query_tool: "inet_res",
-      answer_source: "TXT query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "TXT-ochm.ca",
-      label: "",
-      name: nil,
-      display_name: ~c"ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 30,
-      type: :txt,
-      class: :in,
-      specialised_type: nil,
-      data: "yandex-verification: 64a6060760099fb9",
-      structured_data: %{raw_data: [~c"yandex-verification: 64a6060760099fb9"]},
-      ttl: 14289,
-      query_tool: "inet_res",
-      answer_source: "TXT query",
-      child_records: []
-    },
-    %DnsRecord{
-      id: "TXT-spf-ochm.ca",
-      label: "",
-      name: nil,
-      display_name: ~c"ochm.ca",
-      inside_zone: true,
-      depth: 1,
-      weight: 30,
-      type: :txt,
-      class: :in,
-      specialised_type: :spf,
-      data: "v=spf1 ip4:173.231.229.144 ip4:192.145.239.221 include:smtp.servconfig.com ip4:192.145.239.222 +mx +a +ip4:23.235.221.57 ~all",
-      structured_data: %{
-        raw_data: [~c"v=spf1 ip4:173.231.229.144 ip4:192.145.239.221 include:smtp.servconfig.com ip4:192.145.239.222 +mx +a +ip4:23.235.221.57 ~all"]
-      },
-      ttl: 14289,
-      query_tool: "inet_res",
-      answer_source: "TXT query",
-      child_records: []
-    }
-  ]
-}
-```
-
-```elixir
 defmodule Dns.ZoneTree.Height do
   def calculate_tree_height(record_list, height \\ 0) when is_list(record_list) do
     Enum.reduce(record_list, height, fn record, acc ->
@@ -2675,24 +2229,37 @@ dns_zone_diagram_configuration =
 diagram_type = "flowchart LR"
 ```
 
-In the following step, we insert the list of edges by order of definition.
+In the following step, we insert the list of edges by order of definition. The double-spacing is inserted to prevent Markdown-interpreted single lines, which can cause problems when Mermaid builds the final diagram.
 
 ```elixir
 diagram_styles =
   """
   classDef parent-zone fill:#eff5fa,color:#222,stroke:#FFA74F,stroke-width:2px;
+  
   classDef parent-node fill:#FFBE98FF,stroke:#FFA74F,stroke-width:5px;
+  
   classDef soa-record fill:#FFA74F,color:white,stroke:#FFBE98,stroke-width:5px;
+  
   classDef ns-record fill:#CE3375,color:white,stroke:#E881A6,stroke-width:5px;
+  
   classDef mx-record fill:#E881A6,color:white,stroke:#CE3375,stroke-width:4px;
+  
   classDef a-record fill:#279D9F,color:white,stroke:#60C8B3,stroke-width:5px;
+  
   classDef aaaa-record fill:#3acdcf,color:white,stroke:#60C8B3,stroke-width:5px;
+  
   classDef cname-record fill:#1B5091,color:white,stroke:#6EA1D4,stroke-width:5px;
+  
   classDef subdomain-record fill:#6EA1D4,color:white,stroke:#1B5091,stroke-width:3px;
+  
   classDef txt-record fill:#60C8B3,color:white,stroke:#279D9F,stroke-width:5px;
+  
   classDef spf-record fill:#60C8B3,color:white,stroke:#279D9F,stroke-width:3px;
+  
   classDef srv-record fill:#a4e0d4,color:#222,stroke:#279D9F,stroke-width:2px;
+  
   classDef caa-record fill:#c2eae2,color:#222,stroke:#279D9F,stroke-width:2px;
+  
   linkStyle default fill:none,stroke-width:3px,stroke:#6EA1D4
   """
 ```
@@ -2823,7 +2390,7 @@ dns_zone_diagram =
 ```
 
 ```elixir
-# Kino.Markdown.new(dns_zone_diagram)
+Kino.Markdown.new(dns_zone_diagram)
 ```
 
 The diagram definition, stored in the `dns_zone_diagram` variable, can now be used to draw the DNS zone diagram.
@@ -2898,4 +2465,4 @@ Kino.HTML.new(
 
 ## References
 
-<!-- livebook:{"offset":91882,"stamp":{"token":"XCP.4OI-3t0kNOsl1WJr-e3nDkVI3xDaFJHEa8wpUueKJiTYnFXpfTq8pwHm4xFYmvV_YkUaT-rJxrL0_dlpCYaKmb605Vy4RGBPpJYmw7JVh5vEPP98DqPUyWo6BAjw80BvGqJU4_Q6tEJHiTuxGNvo1aBeNDk9OCkqNAJvtJhPU2wFdqzlxozYz06svTnRG5lK","version":2}} -->
+<!-- livebook:{"offset":77141,"stamp":{"token":"XCP.m_9aLub0Ux0Zd-1kIxb_ErFPDLUFaHezklVjzHKO3ryegjBROBCDNO1PwQGabAKeRHdAgOM--krB4mbgsn6Ikh3kTG6xU0CP80hY8p08OQpR8BkqHcue-zGP8Zc9-MyYJsuHdoP_x2W5D84iXp5ntpMobovSH7JUt3vzvGokkSNBfkzxZRgsjc9nB5xjiwIR","version":2}} -->

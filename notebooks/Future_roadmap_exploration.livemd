@@ -5,11 +5,11 @@
 ## Roadmap
 
 * [ ] Incorporate all DKIM selectors found on the internet to improve the general use of the audit tool
+* [ ] Build DMARC record generator
 * [ ] Refactor all code; rebuild into a full `mix` project, carefully documenting all expected interactions, along with lots of doc-, unit, property and type specification testing
 * [ ] Build a DKIM key checker and verifier
 * [ ] Build DKIM key and record generator
 * [ ] Build SPF record generator
-* [ ] Build DMARC record generator
 
 ## Interesting future functionality
 
